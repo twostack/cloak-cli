@@ -10,22 +10,34 @@ cloak pay oranges.invoice
 cloak proof --invoice 3f9a… --out oranges.proof
 ```
 
+## Cloak in short
+
+P2P payments. A payment is assumed to be made in consideration of something, so it is delivered
+with its proof over the channel the payer and payee already have. `cloak` does not perform blockchain
+scanning and makes no requests that names an address, a txid or an outpoint of the wallet's. The
+single exception will be restoring a wallet from its seed (the latter is as yet unbuilt).
+
+Nothing is taken on trust. Everything the pool says is checked against a round
+this wallet proved off the chain with its own headers, so the Coordinator is a server
+and never an assumed authority.
+
 **Contents**
 
-1. [How it works](#how-it-works)
-2. [Installing](#installing)
-3. [Your first wallet](#your-first-wallet)
-4. [Getting paid](#getting-paid)
-5. [Paying someone](#paying-someone)
-6. [Money in and out of the pool](#money-in-and-out-of-the-pool)
-7. [The commands](#the-commands)
-8. [Command reference](#command-reference)
-9. [Configuration](#configuration)
-10. [Output, exit codes and scripting](#output-exit-codes-and-scripting)
-11. [What to back up](#what-to-back-up)
-12. [When a command refuses](#when-a-command-refuses)
-13. [Not here yet](#not-here-yet)
-14. [For developers](#for-developers)
+1. [Cloak in short](#cloak-in-short)
+2. [How it works](#how-it-works)
+3. [Installing](#installing)
+4. [Your first wallet](#your-first-wallet)
+5. [Getting paid](#getting-paid)
+6. [Paying someone](#paying-someone)
+7. [Money in and out of the pool](#money-in-and-out-of-the-pool)
+8. [The commands](#the-commands)
+9. [Command reference](#command-reference)
+10. [Configuration](#configuration)
+11. [Output, exit codes and scripting](#output-exit-codes-and-scripting)
+12. [What to back up](#what-to-back-up)
+13. [When a command refuses](#when-a-command-refuses)
+14. [Not here yet](#not-here-yet)
+15. [For developers](#for-developers)
 
 ## How it works
 
