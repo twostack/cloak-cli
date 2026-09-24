@@ -240,9 +240,11 @@ out of the image, mounted read-only and detached again whatever happens.
 
 1. The code changes and the dependency switch land first, on `main`, with the suite
    passing and `dart run` behaving as today.
-2. The workflow and the macOS build are exercised on a pre-release tag (`v0.1.0-rc.1`) as
-   a draft, which is deleted after its bundles are checked on real machines.
-3. `v0.1.0` is tagged, the draft checked against the release checklist, and published.
+2. The workflow is exercised by manual dry runs (`workflow_dispatch`), which build and
+   check the Linux bundles and create no release, including the runs that must fail. There
+   are no pre-release tags.
+3. `v0.1.0` is tagged: the workflow makes the draft, `tool/release/macos.sh` adds the
+   image, the draft is checked against the release checklist, and published.
 
 Rollback: a published release can be marked pre-release or deleted. Installed copies keep
 working, since each version is its own directory.

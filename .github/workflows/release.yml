@@ -15,6 +15,13 @@ name: release
 on:
   push:
     tags: ['v*']
+  # a dry run from any branch: everything a release does but create it, to
+  # try the workflow and its refusals without a tag
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The version to check pubspec.yaml against, as a tag would
+        required: true
 
 permissions:
   contents: read
@@ -30,7 +37,8 @@ jobs:
       - uses: actions/checkout@v4
       - name: The tag names the program's version
         run: |
-          tag="${GITHUB_REF_NAME#v}"
+          tag="${{ github.event_name == 'workflow_dispatch' && inputs.version || github.ref_name }}"
+          tag="${tag#v}"
           version=$(sed -n 's/^version: *//p' pubspec.yaml)
           if [ "$tag" != "$version" ]; then
             echo "the tag is v$tag and pubspec.yaml says $version; a release is made only from the tag of its own version" >&2
@@ -88,8 +96,9 @@ jobs:
           if-no-files-found: error
 
   publish:
-    # only when both Linux platforms passed
+    # only when both Linux platforms passed, and only for a tag
     needs: [linux]
+    if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -114,8 +123,8 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          # 0.x and release candidates are pre-releases: a seed alone cannot
-          # yet restore a wallet
+          # 0.x releases are pre-releases: a seed alone cannot yet restore a
+          # wallet
           pre=""
           case "${GITHUB_REF_NAME#v}" in 0.*|*-*) pre="--prerelease" ;; esac
           gh release create "$GITHUB_REF_NAME" bundles/cloak-*.tar.gz bundles/SHA256SUMS \

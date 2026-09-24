@@ -125,8 +125,7 @@ done without the person's go-ahead for that repository or account.
   tag: the refusal without a Developer ID or notary profile, the checks a Linux job runs,
   signing, the image, notarization, and adding the image to the tag's draft with
   `SHA256SUMS` rewritten. *Verified by*: "No Developer ID" (run on this machine before 0.1,
-  where it must refuse and leave no image), and "The draft gains the image" on
-  `v0.1.0-rc.1`.
+  where it must refuse and leave no image), and "The draft gains the image" on `v0.1.0`.
 
 ## 5. The workflows
 
@@ -137,17 +136,19 @@ done without the person's go-ahead for that repository or account.
   Linux jobs building both native libraries from pinned source and the program with the
   release defines, the link check, the size check ("Size checked"), the smoke test and the
   secret scan. *Verified by*: "A workflow with no secrets", and the tests for "A tag that disagrees", "A pinned version missing" and "The native libraries' sources are named" on
-  pre-release tags.
+  manual dry runs (`workflow_dispatch`, which builds and checks but creates no release), not
+  tags: there are no pre-release tags, and `v0.1.0` is the first.
 - [ ] 5.3 The publishing job: only when both Linux jobs passed, `SHA256SUMS`, provenance
-  attestations, a draft release. *Verified by*: the tests for "One platform fails" (a forced failure) and "A passing run" on `v0.1.0-rc.1`, and "Checking a download" against
-  its assets.
+  attestations, a draft release. *Verified by*: "One platform fails" (a forced failure, in a manual dry run
+  on a scratch branch) and "A passing run" on `v0.1.0`, and "Checking a download" against its
+  assets.
 - [ ] 5.4 Cache Isar's build per platform and source commit. *Verified by*: a second
   run on the same commits reports cache hits and builds no Rust.
 
 ## 6. Installation
 
 - [ ] 6.1 Write `install.sh`, taking the bundle out of the disk image on macOS. *Verified by*: tests for "A clean install", "An Intel Mac" (the platform check with `uname` faked), the glibc refusal (faked), "Upgrade" and "Uninstall",
-  run in a temporary `HOME` against the `v0.1.0-rc.1` assets.
+  run in a temporary `HOME` against the `v0.1.0` draft's assets.
 - [x] 6.2 Robustness: a mutation test of `install.sh` over the download (truncated bundle or image,
   flipped bytes, a `SHA256SUMS` missing the line, naming another file, or malformed, and a
   failed download part way). *Verified by*: "A corrupted download", and every case exits non-zero, names what failed,
