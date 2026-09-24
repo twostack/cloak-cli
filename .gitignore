@@ -2,9 +2,9 @@
 build/
 tool/scratch/
 .claude/settings.local.json
-# A machine-local symlink to ../tstokenlib/native; STARK_KERNELS_LIB is the
-# supported way to point at the kernels elsewhere.
-native
+# A machine-local symlink to ../tstokenlib/native, at the root only: a bare
+# `native` also hid lib/src/native/ from git.
+/native
 # A person's own wallet, never in the repo.
 *.enc
 identity.seed
