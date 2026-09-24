@@ -11,6 +11,7 @@ import 'package:path/path.dart' as p;
 import 'package:tstokenlib/src/crypto/stark_kernels.dart' show StarkKernels;
 
 import '../build_facts.dart';
+import 'library_file.dart';
 
 /// The two native libraries `cloak` cannot run without, and where they come
 /// from.
@@ -115,6 +116,11 @@ class NativeLibraries {
     if (FileSystemEntity.typeSync(path) != FileSystemEntityType.file) {
       throw Refusal(step, _missing('the kernels library', path, from));
     }
+    // read before it is opened: the loader does not survive a damaged file
+    final damaged = LibraryFile.problem(path);
+    if (damaged != null) {
+      throw Refusal(step, 'the kernels library $path is not a library this machine can load: $damaged; ${_advice(from)}');
+    }
     final int found;
     try {
       final lib = DynamicLibrary.open(path);
@@ -129,13 +135,19 @@ class NativeLibraries {
     }
   }
 
-  /// Refuses unless Isar's library is in the bundle, before Isar is touched,
-  /// so a missing file is never answered by a download.
+  /// Refuses unless Isar's library is in the bundle and whole, before Isar is
+  /// touched, so a missing file is never answered by a download and a damaged
+  /// one never reaches the loader.
   void checkIsar() {
     final path = isarPath;
     if (path == null) return;
     if (FileSystemEntity.typeSync(path) != FileSystemEntityType.file) {
       throw Refusal(step, _missing('the header store\'s library', path, 'the installation holds'));
+    }
+    final damaged = LibraryFile.problem(path);
+    if (damaged != null) {
+      throw Refusal(step,
+          'the header store\'s library $path is not a library this machine can load: $damaged; ${_advice('the installation holds')}');
     }
   }
 

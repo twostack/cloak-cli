@@ -205,6 +205,33 @@ void main() {
     });
   });
 
+  group('a damaged library is read, not loaded', () {
+    test('the real kernels library passes, and damaged copies of it do not', () {
+      expect(LibraryFile.problem(_built), isNull, reason: 'the library the build hook bundled');
+      final real = File(_built).readAsBytesSync();
+      for (final (what, bytes) in [
+        ('truncated', real.sublist(0, real.length ~/ 3)),
+        ('its header only', real.sublist(0, 64)),
+        ('zeroed', List.filled(real.length, 0)),
+      ]) {
+        final f = File(p.join(b.lib, what))..writeAsBytesSync(bytes);
+        expect(LibraryFile.problem(f.path), isNotNull, reason: what);
+      }
+    });
+
+    test('a damaged Isar library is refused before Isar is touched', () async {
+      expect((await h.init()).code, Exit.done);
+      final real = File(_built).readAsBytesSync();
+      File(b.isar).writeAsBytesSync(real.sublist(0, real.length ~/ 3));
+      final config = await CloakConfig.load(h.dir.config);
+      await expectLater(
+          SpiffyChain.start(h.dir, config, native: b.native()),
+          throwsA(isA<Refusal>()
+              .having((r) => r.step, 'step', 'native library')
+              .having((r) => r.reason, 'reason', allOf(contains(b.isar), contains('past the end of the file')))));
+    });
+  });
+
   group('Commands that need no native library work without them', () {
     test('A bundle with no libraries', () async {
       expect((await h.init()).code, Exit.done);
