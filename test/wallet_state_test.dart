@@ -5,6 +5,7 @@ import 'package:cloak_cli/cloak_cli.dart';
 import 'package:libcloak/libcloak.dart';
 import 'package:test/test.dart';
 
+import 'support/scripts.dart';
 import 'support/harness.dart';
 
 /// The wallet directory: where it is, who may read it, making a wallet,
@@ -139,8 +140,7 @@ void main() {
 
     test('A second writer in another process is refused', () async {
       expect((await h.init()).code, Exit.done);
-      // --verbosity=error: tstokenlib's build hook announces itself on stdout
-      final child = await Process.start(Platform.resolvedExecutable, ['run', '--verbosity=error', 'test/support/hold_lock.dart', h.dir.lock]);
+      final child = await startScript('test/support/hold_lock.dart', [h.dir.lock]);
       final ready = await child.stdout.transform(utf8.decoder).first;
       expect(ready.trim(), 'held');
       try {

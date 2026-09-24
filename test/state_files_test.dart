@@ -7,6 +7,7 @@ import 'package:libcloak/libcloak.dart';
 import 'package:test/test.dart';
 import 'package:tstokenlib/tstokenlib.dart';
 
+import 'support/scripts.dart';
 import 'support/fake_pool.dart';
 import 'support/harness.dart';
 
@@ -119,7 +120,7 @@ void main() {
 
     test('Interrupted in the middle of a write', () async {
       final before = File(h.dir.state).readAsStringSync();
-      final child = await Process.run(Platform.resolvedExecutable, ['run', 'test/support/die_mid_write.dart', h.wallet]);
+      final child = await runScript('test/support/die_mid_write.dart', [h.wallet]);
       expect(child.exitCode, isNot(0), reason: 'the writer was killed: ${child.stderr}');
       expect(File(CloakState.temporaryFor(h.dir.state)).existsSync(), isTrue, reason: 'the wreckage is there');
       expect(File(h.dir.state).readAsStringSync(), before, reason: 'the live file is the previous one');

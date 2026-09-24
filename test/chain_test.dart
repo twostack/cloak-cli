@@ -12,6 +12,7 @@ import 'package:spiffynode/spiffy_node.dart' show BlockHeader;
 import 'package:tstokenlib/tstokenlib.dart' show NoteAddress, BlockFold;
 import 'package:test/test.dart';
 
+import 'support/scripts.dart';
 import 'support/fake_pool.dart';
 import 'support/harness.dart';
 import 'support/regtest_headers.dart';
@@ -94,9 +95,7 @@ void main() {
     await isar.close();
     final answers = <String>[];
     for (int i = 0; i < 2; i++) {
-      // --verbosity=error: tstokenlib's build hook announces itself on stdout
-      final r = await Process.run(Platform.resolvedExecutable,
-          ['run', '--verbosity=error', 'test/support/answer_headers.dart', dir.path, mined[6].blockHash().toString(), '9']);
+      final r = await runScript('test/support/answer_headers.dart', [dir.path, mined[6].blockHash().toString(), '9']);
       expect(r.exitCode, 0, reason: '${r.stderr}');
       answers.add(const LineSplitter().convert('${r.stdout}').last);
     }
