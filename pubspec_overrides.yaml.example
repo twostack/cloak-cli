@@ -1,0 +1,13 @@
+# Copy to pubspec_overrides.yaml (gitignored) to build against sibling
+# checkouts instead of the versions pubspec.lock pins. Dart applies it on top
+# of pubspec.yaml without flags, and only in this package: a sibling's own
+# overrides do not reach here.
+dependency_overrides:
+  libcloak:
+    path: ../libcloak
+  tstokenlib:
+    path: ../tstokenlib
+  libspiffy:
+    path: ../libspiffy
+  ricochet:
+    path: ../ricochet-dart-client

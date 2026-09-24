@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  The one entitlement cloak's program carries under the hardened runtime. A
+  Dart AOT program maps memory it both writes and runs, and without this it
+  is killed at start (measured 2026-09-24: exit 137 with none, and with
+  allow-jit alone). The libraries carry no entitlements.
+-->
+<plist version="1.0">
+<dict>
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+</dict>
+</plist>

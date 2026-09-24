@@ -1,10 +1,12 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:args/args.dart';
 import 'package:libcloak/libcloak.dart';
 import 'package:logging/logging.dart';
 
 import '../commands/table.dart';
+import '../native/native_libraries.dart';
 import '../version.dart';
 import '../wallet/wallet_dir.dart';
 import 'call.dart';
@@ -47,7 +49,7 @@ Future<int> runCloak(List<String> args, World world) async {
   }
 
   if (top['version'] as bool) {
-    world.out.writeln('cloak ${CloakVersion.program}');
+    world.out.writeln(top['json'] as bool ? jsonEncode(CloakVersion.facts) : CloakVersion.line);
     return Exit.done;
   }
   final command = top.command;
@@ -67,8 +69,16 @@ Future<int> runCloak(List<String> args, World world) async {
   var results = command;
   if (spec.verbs.isNotEmpty) {
     final verb = command.command;
+    if (verb == null && command['help'] as bool) {
+      world.out.writeln('cloak ${spec.name}: ${spec.summary}\n');
+      for (final v in spec.verbs.values) {
+        world.out.writeln('  ${v.fullName.padRight(14)} ${v.summary}');
+      }
+      world.out.writeln('\ncloak ${spec.name} <verb> --help for a verb\'s options');
+      return Exit.done;
+    }
     if (verb == null) {
-      final what = command.rest.isEmpty ? 'a verb' : '"${command.rest.first}", which is not one of its verbs';
+      final what = command.rest.isEmpty ? 'none' : '"${command.rest.first}", which is not one of its verbs';
       world.err.writeln('cloak ${spec.name}: needs one of ${spec.verbs.keys.join(', ')}, and was given $what');
       return Exit.usage;
     }
@@ -136,6 +146,13 @@ Future<int> runCloak(List<String> args, World world) async {
     printRefusal(world, spec.fullName, Refusal('transport', 'the pool could not be reached on ${f.call}: ${f.reason}'));
     return Exit.refused;
   } catch (e) {
+    if (e is StateError && e.message.contains('native crate')) {
+      // tstokenlib found no kernels, and says so with the build instruction
+      // for its own developers; a person gets the refusal the check before a
+      // key command gives, which only a path around that check reaches here
+      printRefusal(world, spec.fullName, _noKernels(world));
+      return Exit.refused;
+    }
     // a library that threw rather than refusing is a defect below this one;
     // it is still a sentence and an exit code, never a stack trace
     printRefusal(world, spec.fullName, Refusal('unexpected', 'stopped by ${e.runtimeType}: $e'));
@@ -149,6 +166,17 @@ Future<int> runCloak(List<String> args, World world) async {
     }
     await logs?.cancel();
   }
+}
+
+Refusal _noKernels(World world) {
+  final path = world.native.kernelsPath;
+  return Refusal(
+      NativeLibraries.step,
+      path == null
+          ? 'the kernels library ${NativeLibraries.kernelsName} was found nowhere; set '
+              '${NativeLibraries.kernelsVariable} to its path'
+          : 'the kernels library ${NativeLibraries.kernelsName} could not be loaded from $path; this installation '
+              'is incomplete; reinstall cloak');
 }
 
 /// A refusal, as a person reads it: the command, the step that refused, and

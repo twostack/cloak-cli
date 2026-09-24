@@ -94,8 +94,9 @@ void main() {
     await isar.close();
     final answers = <String>[];
     for (int i = 0; i < 2; i++) {
+      // --verbosity=error: tstokenlib's build hook announces itself on stdout
       final r = await Process.run(Platform.resolvedExecutable,
-          ['run', 'test/support/answer_headers.dart', dir.path, mined[6].blockHash().toString(), '9']);
+          ['run', '--verbosity=error', 'test/support/answer_headers.dart', dir.path, mined[6].blockHash().toString(), '9']);
       expect(r.exitCode, 0, reason: '${r.stderr}');
       answers.add(const LineSplitter().convert('${r.stdout}').last);
     }

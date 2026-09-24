@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ffi' show Abi;
 import 'dart:io';
 
 import 'package:isar/isar.dart';
@@ -6,6 +7,7 @@ import 'package:libcloak/libcloak.dart';
 import 'package:libspiffy/libspiffy.dart';
 import 'package:path/path.dart' as p;
 
+import '../native/native_libraries.dart';
 import '../shell/world.dart';
 import '../wallet/config.dart';
 import '../wallet/wallet_dir.dart';
@@ -67,8 +69,60 @@ class SpiffyChain {
   }
 
   static Future<SpiffyChain> start(WalletDir dir, CloakConfig config,
-      {StringSink? progress, SealedStore? sealed, Map<String, String> env = const {}}) async {
+      {StringSink? progress,
+      SealedStore? sealed,
+      Map<String, String> env = const {},
+      NativeLibraries? native}) async {
     await checkNetwork(dir, config);
+    await _startIsar(native ?? NativeLibraries.ofProcess(env));
+    await Directory(dir.chain).create(recursive: true);
+    final isar = await _open(dir.chain);
+    final system = LibSpiffyActorSystem();
+    final arc = arcFor(config, env);
+    try {
+      await system.initialize(
+        isar: isar,
+        dataDirectory: dir.chain,
+        networkType: config.network.spiffyName,
+        // regtest has no default peers, so with none named there is nothing
+        // to connect to, and libspiffy refuses to start P2P with no one to
+        // talk to; the transparent side and ARC need no peer
+        enableP2P: config.peers.isNotEmpty || config.network != CloakNetwork.regtest,
+        peerAddresses: config.peers.isEmpty ? null : config.peers,
+        secureStorage: sealed,
+        arcConfig: arc,
+      );
+    } on StateError catch (e) {
+      if (e.message.contains('not anchored to')) {
+        throw Refusal(
+            'network', 'the header store in ${dir.chain} does not belong to ${config.network.name}: ${e.message}');
+      }
+      throw Refusal('chain', 'the chain could not be started: ${e.message}');
+    }
+    await File(p.join(dir.chain, networkFile)).writeAsString(config.network.name);
+    final chain = system.headerChain;
+    await _waitForSettle(chain, progress);
+    return SpiffyChain._(SpiffyHeaderSource(chain), system, arc, sealed != null);
+  }
+
+  /// Starts Isar before libspiffy can: Isar starts once per process, so the
+  /// `download: true` libspiffy and eventador ask for later has no effect.
+  ///
+  /// A released build names the bundle's library and never downloads; a
+  /// missing file is refused before Isar is touched, so Isar's own fallback,
+  /// a download written beside the program, is never reached. A development
+  /// build lets Isar find or download its own, as it always has.
+  static Future<void> _startIsar(NativeLibraries native) async {
+    final path = native.isarPath;
+    if (path != null) {
+      native.checkIsar();
+      try {
+        await Isar.initializeIsarCore(libraries: {Abi.current(): path});
+      } catch (e) {
+        throw native.isarUnusable(e);
+      }
+      return;
+    }
     try {
       await Isar.initializeIsarCore(download: true);
     } catch (e) {
@@ -80,27 +134,6 @@ class SpiffyChain {
             'chain still work');
       }
     }
-    await Directory(dir.chain).create(recursive: true);
-    final isar = await _open(dir.chain);
-    final system = LibSpiffyActorSystem();
-    final arc = arcFor(config, env);
-    try {
-      await system.initialize(
-        isar: isar,
-        dataDirectory: dir.chain,
-        networkType: config.network.spiffyName,
-        enableP2P: true,
-        peerAddresses: config.peers.isEmpty ? null : config.peers,
-        secureStorage: sealed,
-        arcConfig: arc,
-      );
-    } on StateError catch (e) {
-      throw Refusal('network', 'the header store in ${dir.chain} does not belong to ${config.network.name}: ${e.message}');
-    }
-    await File(p.join(dir.chain, networkFile)).writeAsString(config.network.name);
-    final chain = system.headerChain;
-    await _waitForSettle(chain, progress);
-    return SpiffyChain._(SpiffyHeaderSource(chain), system, arc, sealed != null);
   }
 
   /// Refuses a header store built under another network than [config]'s,

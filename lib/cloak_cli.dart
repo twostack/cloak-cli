@@ -12,6 +12,7 @@ export 'src/net/ricochet_wallet_transport.dart' show RicochetWalletTransport, Bo
 export 'src/net/rounds.dart' show Rounds, MinedRoundBytes, ReadRound;
 export 'src/net/deadline_transport.dart' show DeadlineTransport;
 export 'src/net/timed_transport.dart' show TimedTransport;
+export 'src/native/native_libraries.dart' show NativeLibraries;
 export 'src/process_ports.dart' show ProcessPorts;
 export 'src/shell/bounded_file.dart' show BoundedFile, MessageKind;
 export 'src/shell/cli.dart' show runCloak, Exit, printRefusal;

@@ -37,6 +37,26 @@ void main() {
     expect(listed, hasLength(18), reason: 'seventeen commands, invoice counted as its two verbs');
   });
 
+  test('a command with verbs lists them under --help', () async {
+    final ran = await h.run(['invoice', '--help'], walletFlag: false);
+    expect(ran.code, Exit.done, reason: '$ran');
+    expect(ran.out, contains('invoice new'));
+    expect(ran.out, contains('invoice show'));
+    final bare = await h.run(['invoice'], walletFlag: false);
+    expect(bare.code, Exit.usage);
+    expect(bare.err, contains('needs one of new, show, and was given none'));
+  });
+
+  test('A developer\'s binary', () async {
+    final ran = await h.run(['--version'], walletFlag: false);
+    expect(ran.code, Exit.done, reason: '$ran');
+    expect(ran.out, 'cloak ${CloakVersion.program} development build\n');
+    final json = await h.run(['--json', '--version'], walletFlag: false);
+    expect(jsonDecode(json.out), {'version': CloakVersion.program, 'build': 'development'});
+    expect(h.ports.touchedNetwork, isFalse);
+    expect(Directory(h.wallet).existsSync(), isFalse, reason: 'no wallet was read');
+  });
+
   test('An unknown subcommand', () async {
     final ran = await h.run(['frobnicate']);
     expect(ran.code, Exit.usage, reason: '$ran');

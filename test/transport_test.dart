@@ -25,7 +25,9 @@ void main() {
     final runtime = (manifest['dependencies'] as YamlMap).keys.toSet();
     final dev = (manifest['dev_dependencies'] as YamlMap).keys.toSet();
     expect(runtime, isNot(contains('pool_coordinator')), reason: 'a wallet does not depend on the server it talks to');
-    expect(dev, contains('pool_coordinator'), reason: 'its suite does');
+    // nor does its suite: the end-to-end run starts the coordinator as a
+    // program of its own, and the transport tests play its end of ricochet
+    expect(dev, isNot(contains('pool_coordinator')), reason: 'two applications, meeting only over the protocol');
     expect(runtime, contains('ricochet'));
   });
 

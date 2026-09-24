@@ -72,6 +72,10 @@ class Harness {
   /// What a terminal would answer, when a test attaches one.
   String? Function(String prompt)? terminal;
 
+  /// Where the native libraries come from, when a test makes a bundle of its
+  /// own; otherwise the suite's own, which is a development build's.
+  NativeLibraries? native;
+
   /// The fixture's pool keys, stood in for the seed's; see
   /// [World.poolKeysForSuite].
   final PoolWalletKeys? poolKeys;
@@ -105,6 +109,7 @@ class Harness {
         kdf: WalletKdf.fast,
         rng: rng,
         poolKeysForSuite: poolKeys == null ? null : (_) => poolKeys!,
+        native: native,
       );
 
   /// Runs `cloak --wallet <this wallet> [args]`.

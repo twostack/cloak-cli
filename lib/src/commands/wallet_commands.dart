@@ -34,6 +34,9 @@ Future<void> runInit(Call call) async {
         'notes is money');
   }
   final network = CloakNetwork.parse(call.option('network')!)!;
+  // a wallet made by an installation that cannot derive its addresses would
+  // be a seed printed for nothing
+  call.world.native.checkKernels();
   final passphrase = await Passphrase.obtain(call.world, confirm: true);
   await dir.create();
 
@@ -120,6 +123,7 @@ Future<void> runStatus(Call call) async {
         'formats: ${CloakVersion.formats.entries.map((e) => '${e.key} ${e.value}').join(', ')}')
     ..add('wallet', dir.path, 'wallet: ${dir.path}')
     ..add('source', dir.source.label, 'named by: ${dir.source.label}');
+  _nativeLibraries(call);
   if (!dir.holdsWallet) {
     r.add('exists', false, 'there is no wallet here; cloak init makes one');
     return;
@@ -164,6 +168,24 @@ Future<void> runStatus(Call call) async {
         'pool view: folded to round ${v.round}, checked to round ${v.checkedTo}, following ${v.notes.length} notes');
   }
   _pending(s.state, r);
+}
+
+/// Where each native library would be loaded from and whether a file is
+/// there, found without loading either, so an installation missing one can
+/// still say which.
+void _nativeLibraries(Call call) {
+  final libs = call.world.native.describe();
+  call.report.quiet('nativeLibraries', libs);
+  call.report.say('native libraries:');
+  for (final l in libs) {
+    final path = l['path'] as String?;
+    final state = path == null
+        ? l['found']
+        : l['present'] == true
+            ? path
+            : 'MISSING: no ${l['file']} at $path';
+    call.report.say('  ${l['name']}  $state');
+  }
 }
 
 void _pending(CloakState state, Report r) {

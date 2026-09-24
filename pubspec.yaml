@@ -9,20 +9,19 @@ environment:
 executables:
   cloak:
 
+# The siblings come from pub.dev, pinned by pubspec.lock. A build against
+# checkouts side by side goes through pubspec_overrides.yaml, which is not
+# committed (see pubspec_overrides.yaml.example).
 dependencies:
   # the shielded side: keys, notes, invoices, payments, proofs, the journal
-  libcloak:
-    path: ../libcloak
+  libcloak: ^0.1.1
   # the pool itself: the protocol messages, the deposit and withdrawal
   # builders, the parameter plans
-  tstokenlib:
-    path: ../tstokenlib
+  tstokenlib: ^2.1.0
   # the transparent side: BEEF in, UTXOs, signing, broadcast, the header chain
-  libspiffy:
-    path: ../libspiffy
+  libspiffy: ^3.0.0
   # the pipe to the coordinator
-  ricochet:
-    path: ../ricochet-dart-client
+  ricochet: ^0.1.0
   dart_libp2p: ^2.0.0
   # the header store libspiffy keeps, opened here so it persists in the
   # wallet directory rather than in memory
@@ -44,8 +43,3 @@ dev_dependencies:
   test: ^1.21.0
   # block headers mined in the suite, for the header chain libspiffy validates
   spiffynode: ^1.1.0
-  # the coordinator, for the end-to-end run on localnet only. A wallet does
-  # not depend on the server it talks to; its test suite does, because the
-  # only way to show the two agree is to run one against the other.
-  pool_coordinator:
-    path: ../pool-coordinator

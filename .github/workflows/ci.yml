@@ -1,0 +1,38 @@
+# On every push and pull request: resolve exactly what pubspec.lock pins,
+# analyze, and run the default suite, on both platforms a release is built on.
+# A pin moved in a way that no longer resolves fails here, on the push, and not
+# on the day of a release.
+name: ci
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+env:
+  DART_SDK: 3.11.5
+  RUST_TOOLCHAIN: 1.84.0
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-14, ubuntu-22.04]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ env.DART_SDK }}
+      - name: Rust toolchain
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal && rustup default "$RUST_TOOLCHAIN"
+      - name: Resolve what the lock pins
+        run: dart pub get --enforce-lockfile
+      - name: Analyze
+        run: dart analyze lib bin test tool/release
+      - name: Default suite
+        # tstokenlib's build hook provides the kernels library the suite needs
+        run: dart test

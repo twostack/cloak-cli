@@ -15,16 +15,27 @@ context: |
     ../libcloak    the shielded side: keys, notes, invoices, payments, payment
                    proofs, acknowledgements and the journal
 
-  From ../tstokenlib (path dependency, branch feature/shielded-pool) come the
+  From tstokenlib come the
   pool itself and everything the two sides agree on: the wallet-to-coordinator
   protocol (PoolSubmission, PoolReply, PoolDescriptor, PoolAnnouncement,
   RefusalReason and the three catch-up messages), the deposit covenant and its
   builders (ShieldedPoolTool.createDepositTxn, findDeposits,
   createDepositRefundTxn, PoolDepositGen), withdrawals (PoolWithdrawal), and
-  the parameter plans. The coordinator it talks to is ../pool-coordinator, which
-  is a DEV dependency only: a wallet does not depend on the server it talks to,
-  its test suite does, because the only way to show the two agree is to run one
-  against the other. The pipe is ../ricochet-dart-client (package `ricochet`).
+  the parameter plans. The coordinator it talks to is ../pool-coordinator, an
+  application of its own and no dependency of this one, not even of its tests:
+  the localnet end-to-end run builds it from its checkout and runs it as a
+  process, and the transport tests play its end of ricochet with
+  test/support/coordinator_end.dart. The pipe is ../ricochet-dart-client (package `ricochet`).
+
+  How they are pinned: tstokenlib, libspiffy and ricochet come from pub.dev
+  (2.1.0, 3.0.0 and 0.1.1 as of 2026-09-25), libcloak too (0.1.1). The
+  committed pubspec.lock pins every package by version and digest, and a
+  release resolves with --enforce-lockfile. tstokenlib's build hook puts its
+  native kernels in the program's bundle, so the program is built with
+  `dart build cli` (dart compile exe refuses build hooks). Working against the checkouts side by
+  side goes through pubspec_overrides.yaml, which is gitignored (copy
+  pubspec_overrides.yaml.example). A sibling's own overrides do not reach
+  this package.
 
   libcloak's API is its README and docs/DESIGN.md section 11. The two ports a
   host must supply are HeaderSource (tip, heightOfBlock, headerAtHeight) and

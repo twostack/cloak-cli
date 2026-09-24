@@ -3,6 +3,7 @@ import 'dart:math';
 import 'package:libcloak/libcloak.dart';
 import 'package:tstokenlib/tstokenlib.dart' show PoolWalletKeys;
 
+import '../native/native_libraries.dart';
 import '../wallet/config.dart';
 import '../wallet/sealed_store.dart';
 import '../wallet/wallet_dir.dart';
@@ -47,6 +48,10 @@ class World {
   /// binary never sets it: a person's pool keys are always their seed's.
   final PoolWalletKeys Function(WalletKeys keys)? poolKeysForSuite;
 
+  /// Where the two native libraries come from. The process's own by default;
+  /// a test names a bundle of its own making.
+  final NativeLibraries native;
+
   World({
     required this.out,
     required this.err,
@@ -58,7 +63,9 @@ class World {
     this.kdf = WalletKdf.strong,
     this.rng,
     this.poolKeysForSuite,
-  }) : now = now ?? (() => DateTime.now().toUtc());
+    NativeLibraries? native,
+  })  : now = now ?? (() => DateTime.now().toUtc()),
+        native = native ?? NativeLibraries.ofProcess(env);
 }
 
 /// The chain and the pool, as a command reaches them.

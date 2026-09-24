@@ -48,8 +48,11 @@ class Call {
 
   /// Opens the wallet for reading or, with [write], for changing it under the
   /// wallet lock. [keys] asks for the passphrase and decrypts the seed; a
-  /// command that needs no key never asks.
+  /// command that needs no key never asks. Keys are derived with ML-KEM, so a
+  /// command opening them first checks the kernels library, before it asks
+  /// for the passphrase or takes the lock.
   Future<Session> open({bool write = false, bool keys = false}) async {
+    if (keys) world.native.checkKernels();
     final s = await Session.open(this, write: write, keys: keys);
     _closers.add(s.close);
     return s;

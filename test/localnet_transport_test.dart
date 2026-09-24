@@ -9,9 +9,9 @@ import 'dart:typed_data';
 
 import 'package:cloak_cli/cloak_cli.dart';
 import 'package:libcloak/libcloak.dart';
-import 'package:pool_coordinator/pool_coordinator.dart' as co;
 import 'package:test/test.dart';
 
+import 'support/coordinator_end.dart';
 import 'support/fake_pool.dart';
 import 'support/ricochet_server.dart';
 
@@ -26,7 +26,7 @@ void main() async {
 
   group('over ricochet', () {
     late RicochetTestServer server;
-    late co.RicochetTransport coordinator;
+    late CoordinatorEnd coordinator;
     late FakePool fp;
     final rng = Random(29);
     Uint8List seed() => Uint8List.fromList(List.generate(32, (_) => rng.nextInt(256)));
@@ -34,7 +34,7 @@ void main() async {
     setUpAll(() async {
       fp = await FakePool.build();
       server = (await RicochetTestServer.start())!;
-      coordinator = await co.RicochetTransport.connect(seed: seed(), server: server.address);
+      coordinator = await CoordinatorEnd.connect(seed: seed(), server: server.address);
       await coordinator.ensureFeed();
     });
     tearDownAll(() async {

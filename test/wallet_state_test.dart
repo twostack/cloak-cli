@@ -139,7 +139,8 @@ void main() {
 
     test('A second writer in another process is refused', () async {
       expect((await h.init()).code, Exit.done);
-      final child = await Process.start(Platform.resolvedExecutable, ['run', 'test/support/hold_lock.dart', h.dir.lock]);
+      // --verbosity=error: tstokenlib's build hook announces itself on stdout
+      final child = await Process.start(Platform.resolvedExecutable, ['run', '--verbosity=error', 'test/support/hold_lock.dart', h.dir.lock]);
       final ready = await child.stdout.transform(utf8.decoder).first;
       expect(ready.trim(), 'held');
       try {

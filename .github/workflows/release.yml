@@ -1,0 +1,124 @@
+# A release's Linux half, from a tag v<version> whose version is pubspec.yaml's.
+#
+# Each Linux platform builds on its own runner: both native libraries from
+# pinned source, the program with the release defines, the bundle, then the
+# checks a bundle passes before anyone can download it (links, size, the smoke
+# test, the secret scan). Only when both passed does the last job write
+# SHA256SUMS, attest provenance and create the release, as a draft.
+#
+# The macOS half is not built here: it is signed and notarized on the
+# maintainer's Mac by tool/release/macos.sh, which adds the disk image to this
+# draft, so no signing secret is ever stored on GitHub. This workflow uses none.
+# Publishing the draft, once it holds all three, is a person's act.
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+env:
+  DART_SDK: 3.11.5
+  RUST_TOOLCHAIN: 1.84.0
+
+jobs:
+  version:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: The tag names the program's version
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version=$(sed -n 's/^version: *//p' pubspec.yaml)
+          if [ "$tag" != "$version" ]; then
+            echo "the tag is v$tag and pubspec.yaml says $version; a release is made only from the tag of its own version" >&2
+            exit 1
+          fi
+
+  linux:
+    needs: version
+    strategy:
+      fail-fast: true
+      matrix:
+        runner: [ubuntu-22.04, ubuntu-22.04-arm]
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dart-lang/setup-dart@v1
+        with:
+          sdk: ${{ env.DART_SDK }}
+      - name: Rust toolchain
+        run: rustup toolchain install "$RUST_TOOLCHAIN" --profile minimal && rustup default "$RUST_TOOLCHAIN"
+      - name: Resolve what the lock pins
+        run: dart pub get --enforce-lockfile
+      - name: Analyze
+        run: dart analyze lib bin test tool/release
+      - name: Cache the native libraries
+        id: native
+        uses: actions/cache@v4
+        with:
+          path: build/native/*.so
+          key: isar-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('pubspec.lock', 'tool/release/build-isar.sh', 'tool/release/isar/Cargo.lock') }}-${{ env.RUST_TOOLCHAIN }}
+      - name: Build Isar's library from source
+        if: steps.native.outputs.cache-hit != 'true'
+        run: tool/release/build-isar.sh build/native
+      - name: Default suite
+        # tstokenlib's build hook provides the kernels, here as in the build
+        run: dart test
+      - name: Notices
+        run: dart run tool/release/notices.dart build/THIRD_PARTY_NOTICES
+      - name: Compile
+        run: tool/release/compile.sh build/program
+      - name: Assemble
+        run: |
+          bundle=$(tool/release/assemble.sh build/program/bundle/bin/cloak build/program/bundle/lib/libstark_kernels.so build/native/libisar.so build/THIRD_PARTY_NOTICES build/bundle)
+          echo "BUNDLE=$bundle" >> "$GITHUB_ENV"
+      - name: Links
+        run: tool/release/check-links.sh "${BUNDLE%.tar.gz}"
+      - name: Smoke test
+        run: tool/release/smoke.sh "$BUNDLE"
+      - name: Secret scan
+        run: dart run tool/release/scan_secrets.dart "${BUNDLE%.tar.gz}"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bundle-${{ matrix.runner }}
+          path: ${{ env.BUNDLE }}
+          if-no-files-found: error
+
+  publish:
+    # only when both Linux platforms passed
+    needs: [linux]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: bundle-*
+          path: bundles
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd bundles
+          ls cloak-*.tar.gz | sort | xargs sha256sum > SHA256SUMS
+          [ "$(wc -l < SHA256SUMS)" -eq 2 ] || { echo "expected the two Linux bundles:" >&2; cat SHA256SUMS >&2; exit 1; }
+          cat SHA256SUMS
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: bundles/cloak-*.tar.gz
+      - name: A draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          # 0.x and release candidates are pre-releases: a seed alone cannot
+          # yet restore a wallet
+          pre=""
+          case "${GITHUB_REF_NAME#v}" in 0.*|*-*) pre="--prerelease" ;; esac
+          gh release create "$GITHUB_REF_NAME" bundles/cloak-*.tar.gz bundles/SHA256SUMS \
+            --repo "$GITHUB_REPOSITORY" --draft --verify-tag $pre \
+            --title "cloak ${GITHUB_REF_NAME#v}" \
+            --notes "Linux bundles built from $GITHUB_SHA by run $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID; the macOS disk image is built, signed and notarized separately and added to this draft. Check a download with \`shasum -a 256 -c SHA256SUMS --ignore-missing\`, a Linux bundle with \`gh attestation verify <bundle> --repo $GITHUB_REPOSITORY\`, and the disk image with \`spctl --assess --type open --context context:primary-signature -v <image>\`."

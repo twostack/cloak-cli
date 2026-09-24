@@ -8,10 +8,10 @@ import 'dart:typed_data';
 
 import 'package:cloak_cli/cloak_cli.dart';
 import 'package:libcloak/libcloak.dart';
-import 'package:pool_coordinator/pool_coordinator.dart' as co;
 import 'package:test/test.dart';
 import 'package:tstokenlib/tstokenlib.dart';
 
+import 'support/coordinator_end.dart';
 import 'support/fake_pool.dart';
 import 'support/harness.dart';
 import 'support/ricochet_server.dart';
@@ -31,7 +31,7 @@ void main() async {
     addTearDown(server.dispose);
     final rng = Random(41);
     Uint8List bytes(int n) => Uint8List.fromList(List.generate(n, (_) => rng.nextInt(256)));
-    final coordinator = await co.RicochetTransport.connect(seed: bytes(32), server: server.address);
+    final coordinator = await CoordinatorEnd.connect(seed: bytes(32), server: server.address);
     addTearDown(coordinator.close);
     await coordinator.ensureFeed();
 

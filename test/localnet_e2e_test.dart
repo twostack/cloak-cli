@@ -12,7 +12,6 @@ import 'package:convert/convert.dart';
 import 'package:dartsv/dartsv.dart';
 import 'package:libcloak/libcloak.dart';
 import 'package:libspiffy/libspiffy.dart' show BEEF, BUMP, NodeRpcDataSource;
-import 'package:pool_coordinator/pool_coordinator.dart' as co;
 import 'package:test/test.dart';
 
 import 'support/harness.dart' show Ran, passphraseEnv;
@@ -31,6 +30,12 @@ import 'support/ricochet_server.dart';
 /// deposits and never submits, and takes the deposit back at its refund
 /// height.
 ///
+/// The coordinator is the real one, run as its own program from a checkout of
+/// pool-coordinator (`../pool-coordinator`, or wherever POOL_COORDINATOR
+/// says), built here with `dart build cli`: two applications that meet only
+/// over the protocol, as they do in the world, and neither a dependency of the
+/// other.
+///
 /// Off unless the localnet harness is up and the run is asked for:
 ///
 ///   POOL_LOCALNET=1 POOL_E2E=1 dart test -t e2e test/localnet_e2e_test.dart
@@ -44,15 +49,15 @@ void main() async {
       ? 'needs ../localnet up; set POOL_LOCALNET=1'
       : env['POOL_E2E'] == null
           ? 'runs a coordinator and a miner, so it is asked for on its own; set POOL_E2E=1'
-          : await _localnetProblem() ?? await RicochetTestServer.available();
+          : await _localnetProblem() ?? await RicochetTestServer.available() ?? _coordinatorProblem();
 
   group('cloak on localnet, against the real coordinator', () {
     late RicochetTestServer ricochet;
     late Directory root;
     late Timer miner;
-    late co.Created created;
-    late co.PoolServer server;
-    late co.RicochetTransport serverTransport;
+    late Process server;
+    final serverOutput = StringBuffer();
+    var stopping = false;
     final timings = <String, int>{};
     final serverPassphrase = 'cloak e2e coordinator passphrase';
 
@@ -96,56 +101,56 @@ server:
   mined_poll_ms: 200
   funding_timeout_seconds: 600
 ''');
-      co.Secrets secrets(co.PoolConfig config) =>
-          co.Secrets.load(config, env: {'POOL_WALLET_PASSPHRASE': serverPassphrase, 'POOL_RPC_PASSWORD': 'bitcoin'});
-      co.NodeChain chain() =>
-          co.NodeChain(rpcUrl: Uri.parse(_rpcUrl), user: 'bitcoin', password: 'bitcoin', timeout: const Duration(seconds: 120));
+      // the coordinator's two secrets come from its environment, as in the world
+      final coordinator = await _buildCoordinator(root);
+      final coordinatorEnv = {'POOL_WALLET_PASSPHRASE': serverPassphrase, 'POOL_RPC_PASSWORD': 'bitcoin'};
       final sw = Stopwatch()..start();
-      created = await co.PoolCreator(
-        config: await co.PoolConfig.load(configPath),
-        configPath: configPath,
-        secrets: secrets(await co.PoolConfig.load(configPath)),
-        chain: chain(),
-        connect: (seed) => co.RicochetTransport.connect(seed: seed, server: ricochet.address),
-        pollInterval: const Duration(milliseconds: 500),
-        kdf: co.KdfParams.light,
-        say: (line) {
-          final m = RegExp(r'^fund (\S+) with at least (\d+) satoshis').firstMatch(line);
-          if (m != null) unawaited(_rpc('sendtoaddress', [m.group(1)!, (int.parse(m.group(2)!) + 100000) / 1e8]));
-        },
-      ).run();
+      final create = await Process.start(coordinator, ['--config', configPath, 'create'],
+          workingDirectory: '${root.path}/pool', environment: coordinatorEnv);
+      String? peerId;
+      final createOutput = StringBuffer();
+      create.stderr.transform(utf8.decoder).listen(createOutput.write);
+      await for (final line in create.stdout.transform(utf8.decoder).transform(const LineSplitter())) {
+        createOutput.writeln(line);
+        // it asks to be funded, and says under which peer id it published
+        final fund = RegExp(r'^fund (\S+) with at least (\d+) satoshis').firstMatch(line);
+        if (fund != null) unawaited(_rpc('sendtoaddress', [fund.group(1)!, (int.parse(fund.group(2)!) + 100000) / 1e8]));
+        peerId ??= RegExp(r'under peer id (\S+)').firstMatch(line)?.group(1);
+      }
+      if (await create.exitCode != 0 || peerId == null) fail('the coordinator did not create the pool:\n$createOutput');
       timings['pool created ms'] = sw.elapsedMilliseconds;
 
-      final config = await co.PoolConfig.load(configPath);
-      final (file, contents) = await co.WalletFile.open(config.wallet.file, secrets(config).walletPassphrase);
-      final nodeChain = chain();
-      serverTransport = await co.RicochetTransport.connect(
-          seed: await co.IdentityFile.read(config.ricochet.identityFile),
-          server: ricochet.address,
-          retryDelay: const Duration(milliseconds: 500));
-      server = await co.PoolServer.start(
-          config: config,
-          wallet: co.FileWallet(
-              file: file,
-              contents: contents,
-              chain: nodeChain,
-              feeRate: config.round.feeRate,
-              feeFloor: config.round.feeFloor,
-              minedPoll: config.server.minedPoll,
-              fundingTimeout: config.server.fundingTimeout),
-          store: co.FileRoundStore(config.store.directory),
-          chain: nodeChain,
-          transport: serverTransport);
+      server = await Process.start(coordinator, ['--config', configPath, 'run'],
+          workingDirectory: '${root.path}/pool', environment: coordinatorEnv);
+      // its output goes to a file in the run's directory, to read while it
+      // runs and after (CLOAK_E2E_KEEP=1 keeps the directory)
+      final serverLog = File('${root.path}/pool/coordinator.log').openWrite();
+      server.stdout.listen((b) {
+        serverLog.add(b);
+        serverOutput.write(utf8.decode(b, allowMalformed: true));
+      });
+      server.stderr.listen((b) {
+        serverLog.add(b);
+        serverOutput.write(utf8.decode(b, allowMalformed: true));
+      });
+      unawaited(server.exitCode.then((code) {
+        if (!stopping) print('  the coordinator stopped by itself, with $code:\n$serverOutput');
+      }));
 
       // ---- the wallets, each following the pool
-      depositor = await _Wallet.make(root, 'depositor', ricochet.address, created.peerId);
-      payee = await _Wallet.make(root, 'payee', ricochet.address, created.peerId);
-      refunder = await _Wallet.make(root, 'refunder', ricochet.address, created.peerId);
+      depositor = await _Wallet.make(root, 'depositor', ricochet.address, peerId);
+      payee = await _Wallet.make(root, 'payee', ricochet.address, peerId);
+      refunder = await _Wallet.make(root, 'refunder', ricochet.address, peerId);
     });
 
     tearDownAll(() async {
       miner.cancel();
-      await server.stop();
+      stopping = true;
+      server.kill(ProcessSignal.sigterm);
+      await server.exitCode.timeout(const Duration(seconds: 30), onTimeout: () {
+        server.kill(ProcessSignal.sigkill);
+        return -9;
+      });
       await ricochet.dispose();
       print('  timings: ${timings.entries.map((e) => '${e.key} ${e.value}').join(', ')}');
       if (env['CLOAK_E2E_KEEP'] == null) root.deleteSync(recursive: true);
@@ -273,7 +278,9 @@ server:
 class _Wallet {
   static const passphrase = 'cloak e2e wallet passphrase';
 
-  /// The compiled `bin/cloak.dart`, built once for the run.
+  /// The compiled `bin/cloak.dart`, built once for the run, or a released
+  /// bundle's program when CLOAK_E2E_BINARY names one, which is how the release
+  /// checklist runs this suite against what it is about to publish.
   static late String binary;
 
   final String name;
@@ -283,9 +290,16 @@ class _Wallet {
   String get path => '${root.path}/w';
 
   static Future<void> build(Directory under) async {
-    binary = '${under.path}/cloak';
-    final r = await Process.run('dart', ['compile', 'exe', 'bin/cloak.dart', '-o', binary]);
-    if (r.exitCode != 0) fail('cloak did not compile: ${r.stdout}${r.stderr}');
+    final given = Platform.environment['CLOAK_E2E_BINARY'];
+    if (given != null) {
+      binary = File(given).absolute.path;
+      return;
+    }
+    // dart build cli, since tstokenlib's build hook puts its kernels in the
+    // bundle; the program finds them there as an installed one does
+    final r = await Process.run('dart', ['build', 'cli', '--target', 'bin/cloak.dart', '-o', '${under.path}/cli']);
+    if (r.exitCode != 0) fail('cloak did not build: ${r.stdout}${r.stderr}');
+    binary = '${under.path}/cli/bundle/bin/cloak';
   }
 
   static Future<_Wallet> make(Directory under, String name, String server, String coordinator) async {
@@ -300,18 +314,10 @@ class _Wallet {
     return w;
   }
 
-  /// tstokenlib's native kernels, which ML-KEM needs and a compiled binary
-  /// cannot find beside a package it no longer has: an installed cloak is
-  /// told where they are, as this is.
-  static final _kernels = File('../tstokenlib/native/stark_kernels/target/release/'
-          '${Platform.isMacOS ? 'libstark_kernels.dylib' : 'libstark_kernels.so'}')
-      .absolute
-      .path;
-
   Future<Ran> run(List<String> args) async {
     final r = await Process.run(binary, ['--wallet', path, ...args],
         workingDirectory: root.path,
-        environment: {'HOME': root.path, passphraseEnv: passphrase, 'STARK_KERNELS_LIB': _kernels},
+        environment: {'HOME': root.path, passphraseEnv: passphrase},
         stdoutEncoding: utf8,
         stderrEncoding: utf8);
     return Ran(r.exitCode, r.stdout as String, r.stderr as String);
@@ -421,6 +427,33 @@ Future<String?> _roundTxPaying(String address, int sats) async {
 }
 
 /// Why localnet cannot run this, or null when it can.
+String _kernelsName() => Platform.isMacOS ? 'libstark_kernels.dylib' : 'libstark_kernels.so';
+
+/// The pool-coordinator checkout the coordinator is built from.
+String get _coordinatorCheckout =>
+    Platform.environment['POOL_COORDINATOR'] ?? File('../pool-coordinator').absolute.path;
+
+/// Why the coordinator cannot be built here, or null when it can.
+String? _coordinatorProblem() => File('$_coordinatorCheckout/bin/pool_coordinator.dart').existsSync()
+    ? null
+    : 'needs a pool-coordinator checkout at $_coordinatorCheckout, or POOL_COORDINATOR naming one';
+
+/// The coordinator, built from its checkout into [under] as a person would
+/// build it, and the path of its program.
+Future<String> _buildCoordinator(Directory under) async {
+  final r = await Process.run('dart', ['build', 'cli', '--target', 'bin/pool_coordinator.dart', '-o', '${under.path}/coordinator'],
+      workingDirectory: _coordinatorCheckout);
+  if (r.exitCode != 0) fail('the coordinator did not build: ${r.stdout}${r.stderr}');
+  // tstokenlib's build hook puts the kernels in the coordinator's bundle, as
+  // in cloak's; without them the coordinator refuses to start
+  final kernels = File('${under.path}/coordinator/bundle/lib/${_kernelsName()}');
+  if (!kernels.existsSync()) {
+    fail('the coordinator built from $_coordinatorCheckout bundles no kernels library: its lock pins a tstokenlib '
+        'from before the build hook (2.1.0); run dart pub upgrade tstokenlib there');
+  }
+  return '${under.path}/coordinator/bundle/bin/pool_coordinator';
+}
+
 Future<String?> _localnetProblem() async {
   try {
     final chain = await _rpc('getblockchaininfo') as Map<String, dynamic>;

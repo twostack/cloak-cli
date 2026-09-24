@@ -1,6 +1,5 @@
 .dart_tool/
 build/
-pubspec.lock
 tool/scratch/
 .claude/settings.local.json
 # A machine-local symlink to ../tstokenlib/native; STARK_KERNELS_LIB is the
@@ -9,3 +8,8 @@ native
 # A person's own wallet, never in the repo.
 *.enc
 identity.seed
+# Overrides to sibling checkouts, per machine.
+pubspec_overrides.yaml
+# Editor and Finder files, per machine.
+.idea/
+.DS_Store

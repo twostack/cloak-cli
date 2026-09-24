@@ -357,7 +357,7 @@ commit:
 | `../tstokenlib` | `37ab3ac`, `48b5c35` | the catch-up messages exported; `wallet-rounds`: protocol version 3, ids and refusals on catch-up, a round by number, `ShieldedLedger.readLeaves`, and the slim mined-round notice |
 | `../pool-coordinator` | `e83819e` | `wallet-catch-up`: catch-up answered at the last mined round, rounds by number, notices and late `expired` replies to the notices folder |
 
-tstokenlib is on its `feature/shielded-pool` branch; the others are on `main`.
+tstokenlib's work is on its `main` now (the `feature/shielded-pool` branch is vestigial); the others are on `main`.
 
 ### Decided against, group by group
 
@@ -417,3 +417,105 @@ share of `cloak pay`, best 61 ms (108 ms); building a deposit, best 107 ms (500 
 - Section 5's thousand-round run waits on "a head proof the coordinator does not serve".
   The coordinator serves it now; the run starts no coordinator, so nobody answers, and the
   test now says so.
+
+## 12. Release binaries, first half (2026-09-24)
+
+The change `release-binaries`, applied as far as this repository and this machine allow
+(Apple M3 Pro, macOS 14.6, Dart 3.11.5, rustc 1.84.0). What waits on other people's
+accounts and repositories is listed in its tasks as group 0.
+
+**Two decisions changed while applying.** tstokenlib 2.0.1, libspiffy 3.0.0 and ricochet
+0.1.0 were published on pub.dev the same day, so the siblings come from pub.dev, pinned by
+the lock, and libcloak follows once it is published. tstokenlib 2.0.1 also looks for its
+kernels in `../lib` from the program's real path, so the bundle has no launcher script: it
+is `bin/cloak` and `lib/`, and links point at the program itself.
+
+**Measured on a trial bundle** (built from a working tree with changes, so its `--version`
+says `-dirty`; its notices are a placeholder until libcloak has a license):
+
+| | reading |
+|---|---|
+| the bundle, packed | 7,703,838 bytes (bound 25 MB) |
+| Isar's core, built from source at `6643d064` | 27 s, 1.0 MB |
+| tstokenlib's kernels, built from the locked package's crate | 8 s |
+| the smoke test, whole | 4.3 s |
+| the localnet end-to-end suite, run on the bundle's program with `STARK_KERNELS_LIB` unset | 4 passed |
+
+**Counts.** `dart analyze lib bin test tool/release`: no issues. `dart test`: 150 passed, 13
+skipped (the 13 as in section 11). The mutation test of the kernels library: 9 cases (empty,
+zeroed, random, another platform's, truncated, a flipped header; the variable naming a
+directory, a missing path, an empty string), each a `native library` refusal with exit 1.
+The mutation test of `install.sh`: 9 cases, each exiting non-zero, naming what failed, and
+leaving the installed version as it was.
+
+**Found while applying.**
+
+- A regtest wallet with no peers could not start the chain: libspiffy knows no regtest
+  peers and refuses to start P2P with nobody to connect to. The chain now starts without
+  P2P then; the transparent side and ARC need no peer. The refusal it gave said the header
+  store "does not belong to regtest", because every error from libspiffy's start was read
+  as a network mismatch; only the mismatch is now, and anything else is refused at `chain`.
+- Isar, given no path, opens a bare file name first, which macOS resolves against the
+  working directory: a planted `libisar.dylib` there would have been loaded. A released
+  build names the bundled file.
+- Isar's repository has no `Cargo.lock`, so a build from its tag floats to the newest
+  dependencies, one of which already needed a newer compiler; the release keeps its own.
+- The first secret scan flagged 22 runs of hex in the program. All are curve parameters
+  written in the source of packages compiled in, so a hex run published in a package is
+  now taken as public.
+
+**Changed on 2026-09-25: macOS is a local, notarized disk image.** The person does not want
+signing secrets on GitHub, and passed on Homebrew for now. The release workflow builds only
+the two Linux bundles and holds no secret; `tool/release/macos.sh` builds the macOS bundle
+on the maintainer's Mac, signs it, packs it in a disk image, has Apple notarize it, staples
+the ticket and adds it to the workflow's draft. A stapled image also means the first run
+needs no network, which a program in a tar.gz could not have. The Werkswinkel Pte Ltd team
+is on this Mac, but only as an *Apple Development* certificate, which Apple's notary
+service does not accept; a *Developer ID Application* certificate is still owed. A trial
+(`macos.sh --trial`, signed with the Apple Development certificate, not notarized): the
+whole suite, signing, links, smoke test and secret scan passed, and the image was
+9,502,263 bytes, holding exactly the bundle. Copied out quarantined, its program was killed
+by macOS and `spctl` rejected it, as it must be for anything not notarized, which shows
+the check is a real one. Without a Developer ID, `macos.sh` refuses before building
+anything and leaves no image.
+
+**The Developer ID, 2026-09-25.** `Developer ID Application: Werkswinkel Pte Ltd
+(32XLPKQ5TF)` is in the keychain (`C027D3BD...`). The trial bundle re-signed with it passed
+`sign-macos.sh`'s checks (hardened runtime, timestamp, the one entitlement on the program,
+none on the libraries, the chain up to Apple's Developer ID authority), and through a link
+it ran `init` and `address`, which loads the signed kernels.
+
+**Notarized, 2026-09-25.** `macos.sh --trial` with the Developer ID and `TRIAL_NOTARIZE=1`
+(the whole suite and every check again, the image 9,501,662 bytes): Apple answered
+`Accepted` (submission `dd3fb36a-b605-4501-839c-92367bc7e741`), the ticket stapled and
+validated, and the image assessed as `source=Notarized Developer ID`. Copied out of the
+quarantined image, the program ran `--version`, `init` and `address`; the same check on the
+earlier trial, not notarized, had the program killed. An image whose program was signed
+without the hardened runtime came back `Invalid` (submission `671886ce-...`) with "The
+executable does not have the hardened runtime enabled", and the script failed printing it.
+
+One thing the spec had wrong: `spctl --assess --type execute` judges only app bundles, and
+says of any command-line program, notarized or not, "the code is valid but does not seem
+to be an app". `codesign --check-notarization` did not tell the two trials apart either.
+What does is macOS itself: a quarantined program it cannot vouch for is killed. So the
+check is running the quarantined program, with the image's `open` assessment beside it.
+
+**No dependency on the coordinator, 2026-09-25.** The person pointed out that a package
+depending on an application is backwards. `pool_coordinator` is gone from
+`dev_dependencies`: the localnet end-to-end run builds the coordinator from its checkout with
+`dart build cli` and runs `create` and `run` as processes (its output in `coordinator.log`),
+and the two localnet transport tests play its end of ricochet with
+`test/support/coordinator_end.dart`. Every dependency now comes from pub.dev, and a copy of
+the repository with no sibling checkouts resolves from the lock with `--enforce-lockfile`,
+leaving it byte for byte unchanged.
+
+The first run as processes hung: the coordinator refused to start, finding no kernels. Its
+checkout locked tstokenlib 2.0.1, from before the build hook, and in the test's own process
+it had been borrowing cloak's copy unnoticed. Its lock was upgraded to 2.1.0 (its pubspec
+already allowed it; the change is in pool-coordinator's `pubspec.lock`, not committed here),
+so its own build fetches its kernels as cloak's does, and the test now stops, naming the
+cause, when a coordinator build bundles none. Then: the end-to-end run 4 passed (pool created
+23.7 s, deposit to note 46.4 s), the localnet transport tests 2 passed, the thousand-round
+sync bound passed (folding 832 ms), and the default suite 150 passed, 13 skipped. Two tests
+that start a second `dart run` read its standard output, where the build hook now announces
+itself; they pass `--verbosity=error`.
