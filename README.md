@@ -18,17 +18,16 @@ The pool itself, its protocol and its deposit covenant come from `tstokenlib`. T
 to the pool's coordinator is `ricochet`: the wallet's only network connection is to one
 ricochet server, and the coordinator is only ever an address on it.
 
-## The rule it is built under
+## Cloak in short
 
-People pay people. A payment is made in consideration of something, so it is delivered
-with its proof over the channel the payer and payee already have. `cloak` scans no chain
-and makes no request that names an address, a txid or an outpoint of the wallet's. The
-single exception will be restoring a wallet from its seed, where there is nobody to ask,
-and that is not built yet.
+P2P payments. A payment is assumed to be made in consideration of something, so it is delivered
+with its proof over the channel the payer and payee already have. `cloak` does not perform blockchain
+scanning and makes no requests that names an address, a txid or an outpoint of the wallet's. The
+single exception will be restoring a wallet from its seed (the latter is as yet unbuilt).
 
-Nothing is taken on trust either. Everything the pool says is checked against a round
-this wallet proved off the chain with its own headers, so the coordinator is a server
-and never an authority.
+Nothing is taken on trust. Everything the pool says is checked against a round
+this wallet proved off the chain with its own headers, so the Coordinator is a server
+and never an assumed authority.
 
 ## The commands
 
