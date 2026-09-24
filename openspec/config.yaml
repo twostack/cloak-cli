@@ -1,0 +1,94 @@
+schema: spec-driven
+
+context: |
+  cloak-cli is a command-line wallet for the TSL1_SP shielded pool: a Dart 3
+  application package (bin/, lib/, test/ with package:test) whose binary is
+  `cloak`. It is a HOST, not a library. It owns a config file, a data directory,
+  an argument parser and the commands a person types; it owns no cryptography, no
+  protocol and no ledger, and a rule that belongs to one of its libraries is
+  raised there rather than reimplemented here.
+
+  It wires two libraries that do not know about each other:
+
+    ../libspiffy   the transparent side: BEEF in, UTXOs and reservations,
+                   signing, ARC broadcast, and a validated block header chain
+    ../libcloak    the shielded side: keys, notes, invoices, payments, payment
+                   proofs, acknowledgements and the journal
+
+  From ../tstokenlib (path dependency, branch feature/shielded-pool) come the
+  pool itself and everything the two sides agree on: the wallet-to-coordinator
+  protocol (PoolSubmission, PoolReply, PoolDescriptor, PoolAnnouncement,
+  RefusalReason and the three catch-up messages), the deposit covenant and its
+  builders (ShieldedPoolTool.createDepositTxn, findDeposits,
+  createDepositRefundTxn, PoolDepositGen), withdrawals (PoolWithdrawal), and
+  the parameter plans. The coordinator it talks to is ../pool-coordinator, which
+  is a DEV dependency only: a wallet does not depend on the server it talks to,
+  its test suite does, because the only way to show the two agree is to run one
+  against the other. The pipe is ../ricochet-dart-client (package `ricochet`).
+
+  libcloak's API is its README and docs/DESIGN.md section 11. The two ports a
+  host must supply are HeaderSource (tip, heightOfBlock, headerAtHeight) and
+  Transport (request, readFeed). Both are deliberately narrow: no method takes
+  an address, an outpoint or a wallet-derived txid, so neither can leak one.
+  An implementation that widens a port to make a command easier is wrong here.
+
+  Measured facts about the seams, established 2026-09-24 in this repo, not to be
+  re-derived:
+
+  - The whole graph resolves and imports together: libcloak, tstokenlib,
+    libspiffy and ricochet in one `dart pub get`, 114 packages.
+  - libspiffy's BlockHeaderChain answers all three HeaderSource questions today:
+    `bestHeight` and `chainTip` for tip, `getHeightByHash(String)` for
+    heightOfBlock, and `getHeaderByHeight(int)` whose BlockHeader.serialize()
+    is exactly the 80 bytes headerAtHeight wants. It is reached through
+    LibSpiffyActorSystem.headerChain. The one gap is that the type is not
+    exported from lib/libspiffy.dart, which is a one-line change there.
+  - A depositor needs the live pool's PP3 outpoint, which is the announced
+    round's roundTxId with vout 3. It comes off an announcement the wallet
+    already reads, so a deposit costs no lookup.
+
+  The rule the whole wallet is shaped by: people pay people, in consideration of
+  something, so a payment is delivered *with its proof* over the channel the
+  payer and payee already have. Nothing here scans a chain, and no command makes
+  a request that names an address, a txid or an outpoint on the wallet's behalf.
+  The one exception is restoring a wallet from its seed, where there is nobody to
+  ask. A command that reaches for a lookup is wrong here, not merely suboptimal.
+
+  Nothing is taken on trust either. Every answer the pool gives is checked
+  against something the wallet proved for itself, so the coordinator is a
+  convenient server and never an authority. Where a command cannot check an
+  answer before acting on it, the design says what the loss is bounded to and
+  how long it lasts.
+
+  Chain limits (BSV runs Teranode): 10 MB per transaction, 1,000,000 ops per
+  script, 100 MB per script. ARC's parse limit of 1,636,802 bytes per scriptSig
+  means production-parameter witnesses do not go through ARC, so testnet runs at
+  test parameters.
+
+  Conventions: commit only when the user asks, on main; never push, merge or open
+  a PR unless asked; commits end with "Co-Authored-By: Claude Opus 5 (1M context)
+  <noreply@anthropic.com>" (adjust the model name to the one doing the work); do
+  not commit tool/scratch, .claude/settings.local.json, a wallet file or an
+  identity seed. Run `dart analyze lib bin test` clean before finishing, and the
+  suites that touch what changed. Doc comments are prose with a "why"; no em
+  dashes in prose. Secrets (the seed, the spending key, passphrases, an RPC
+  password) never appear in logs, errors, config examples or tests as real
+  values, and a command never prints one.
+
+rules:
+  proposal:
+    - Name the measured numbers the change is meant to move and the bounds they must stay inside; say which of them the specs make requirements.
+    - Say for each command whether it is new behaviour or the wiring of behaviour a library already has; wiring is the default and new behaviour needs its reason.
+  specs:
+    - Each capability states its non-functional contract as requirements with scenarios, answering in turn untrusted input, secrets and privacy, trust, determinism, compatibility, performance and resources, and failure behaviour; say "not applicable" in the proposal rather than silently omitting one.
+    - A bound another component relies on is a requirement; a threshold that only steers the implementation belongs in design.md.
+    - Scenarios use inputs the test suite can produce today (libcloak's fakes, tstokenlib's PoolChainFixture and PoolTestChain, the localnet harness, real parameter sets, real files); extending a fixture is a task, not an assumption.
+    - Numbers in requirements and scenarios are either measured (say where) or bounds a task will check; no comparisons with anything unmeasured.
+    - Privacy requirements say what the command must not reveal by the way it runs, not only what it prints; a requirement that permits a request naming an address, txid or outpoint is wrong unless it is seed recovery.
+    - A command that takes bytes from another person states what it refuses and how the person is told which rule failed; "invalid" is not a refusal.
+  design:
+    - For each bound set before measuring, say what happens if the measurement fails it.
+    - Where a command must act before it can check the answer it was given, say what the loss is bounded to, how long it lasts, and what recovers it.
+  tasks:
+    - Every task states how it is verified; every non-functional requirement has a verification task, robustness ones by mutation testing.
+    - A task that needs a change in a sibling repository says so and names the repository; it is not silently absorbed here.

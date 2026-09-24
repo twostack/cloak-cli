@@ -1,0 +1,29 @@
+# Runs that need the world outside this process are tagged, and each also
+# checks its own environment switch, so the default `dart test` never needs
+# ../localnet or a coordinator:
+#
+#   dart test                                   the suite, against a fake pool
+#   dart test -P perf                           the timing bounds, one file at a time
+#   POOL_LOCALNET=1 dart test                   adds runs against localnet
+#   POOL_LOCALNET=1 dart test -P perf           adds localnet's timing bounds
+#   POOL_LOCALNET=1 POOL_E2E=1 dart test -t e2e a real coordinator end to end
+#
+# The timing bounds are bounds on one core. In the default pack every file
+# runs at once and a reading of 50 ms becomes 150, which says something about
+# the pack and nothing about the wallet, so they are asked for on their own.
+tags:
+  localnet:
+    timeout: 5m
+  e2e:
+    timeout: 30m
+  perf:
+    skip: "a timing bound, measured on its own: dart test -P perf"
+timeout: 2m
+
+presets:
+  perf:
+    include_tags: perf
+    concurrency: 1
+    tags:
+      perf:
+        skip: false

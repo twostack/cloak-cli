@@ -1,0 +1,419 @@
+# cloak: the design record
+
+A running record, appended in dated sections and never rewritten: what was
+built, what was measured, on which machine and at which parameters, and what
+was decided against. The plan it follows is the OpenSpec change `cloak-cli`
+under `openspec/changes/`.
+
+## 1. The package, and what it waited on (2026-09-24)
+
+### The shape
+
+`cloak` is a host. `bin/cloak.dart` builds a `World` from the process (the two
+streams, the environment, a prompt with echo off, and `ProcessPorts`, which
+start the chain and open the transport on first use) and hands it to
+`runCloak`. The suite builds a `World` from doubles and calls the same
+function, so every command runs in-process against a fake pool and a test can
+count what a command started.
+
+```
+lib/src/shell/     the argument parser, the seventeen subcommands, the report
+                   printed as lines or one JSON object, the refusal printer,
+                   the bounded file reader, the passphrase rule
+lib/src/wallet/    the wallet directory, config.yaml, the lock, this program's
+                   own state file, and the Session every command opens
+lib/src/chain/     libcloak's HeaderSource over libspiffy's BlockHeaderChain
+lib/src/net/       libcloak's Transport over ricochet, the transport identity
+lib/src/commands/  one file per group of commands
+```
+
+A command never prints. It adds facts to a `Report`, each with the line a
+person reads it as, and the shell prints the lines or the JSON. Both forms
+come from the same calls, which is what "both forms carry the same facts"
+rests on.
+
+Exit codes are 0 done, 1 refused, 2 malformed. A `Refusal` from a library is
+printed as `cloak <command>: refused at "<step>": <the library's sentence>`,
+unchanged; anything a library throws that is not a refusal is still a
+sentence and exit 1, never a stack trace.
+
+### Sibling work this change waited on
+
+| task | repository | what | state |
+|---|---|---|---|
+| 0.1 | `../libspiffy` | exports `BlockHeaderChain`, `BlockHeaderAnchor`, `HeaderAcceptResult`, `HeaderRejectReason` and `NetworkParams` from `lib/libspiffy.dart` | uncommitted on top of `cb3c03f`; that file also carries someone else's uncommitted `type42` export, left alone |
+| 0.2, 0.3 | `../libcloak` | `DepositBuilder`, `WithdrawalBuilder`, `CoordinatorClient.submitDeposit` and `submitWithdrawal`, four journal kinds; OpenSpec change `onramp-builders` in libcloak, validated strict | uncommitted on top of `149a36a`; libcloak's suite 231 pass, 3 skipped; `test/onramp_test.dart` 17 pass |
+| R1 to R5 | `../pool-coordinator`, `../tstokenlib` | the coordinator answers catch-up, serves a mined round by number with its leaves and nullifiers, refuses quickly, and optionally pushes proven rounds | asked for on 2026-09-24 and in progress in those repositories; see below |
+
+The commits are not made: this change commits nothing in any repository until
+asked, and the sibling repositories are the same.
+
+### A gap the design did not see: where a mined round comes from
+
+`cloak proof` needs the mined round's transactions, the witness's merkle
+branch and the paid note's full path. So does taking on the payer's change,
+marking its spent note spent, and taking on a deposit's note. Neither port
+supplies them: the feed's announcement carries three txids, the coordinator
+answered only submissions, and libcloak's own localnet run fetched the round
+from a node by txid and replayed a ledger from the pool's genesis. A wallet
+that looked the round up somewhere would be making exactly the request the
+design rules out.
+
+The decision, taken with the person on 2026-09-24: the coordinator delivers
+them. The asks were written down as R1 to R5 (answer the three catch-up
+requests; serve any mined round by number; carry the round's leaves, frontier
+and nullifiers, all of which the wallet checks against the proven header;
+refuse quickly rather than stay silent; optionally push proven rounds to
+submitters). Until they land, `cloak proof` refuses at the step `round source`
+naming what it lacks, and does not look anywhere else.
+
+### Decided against
+
+- **A shared host-building package for ricochet.** Two callers, a small
+  wallet half; see the change's design.
+- **Parsing libcloak's prose.** One place does: `cloak sync` recognises a feed
+  that no longer reaches its next round by the round the refusal names. It is
+  recorded here because it will break if that sentence changes; libcloak
+  exposing the gap as a value would remove it.
+- **Following the feed from a stored sequence.** `CoordinatorClient` starts
+  each process at the descriptor and passes over rounds it has folded, so a
+  sync re-reads the feed from its start. The rounds it passes over cost a
+  decode each; a `from` on `CoordinatorClient.open` would remove it.
+
+## 2. The shell and the wallet directory (2026-09-24)
+
+Measured on an Apple M3 Pro, Dart 3.11.5, test parameters throughout.
+
+| | measured | bound |
+|---|---|---|
+| `cloak --help`, compiled binary, first run of a fresh binary | 303 ms (warm 14 ms) | **500 ms** |
+| `cloak balance` cold, compiled binary, a wallet holding a note | 24 ms, no chain started, no transport opened | **3 s** |
+| saving a wallet of 1,000 notes: the view, the store, the state and one journal entry | best 52 ms, worst 65 ms, of 7 | **500 ms** |
+| the pool view at 1,000 notes / the note store | 1,069,344 B (1,069 a note) / 73,010 B (73 a note) | as libcloak measured |
+
+**The lock** is the operating system's record lock on `cloak.lock`, plus a set of paths
+this process holds, because POSIX record locks never conflict within one process and the
+suite runs two commands in one. The set is claimed before the first await; the first
+version checked and then awaited, and two payments in one process both got in. A second
+writer waits two seconds and is refused naming the directory and the holder's process id.
+
+**Interrupted writes.** This program's own state file is killed for real between its
+temporary file and its rename (`test/support/die_mid_write.dart`). libcloak saves the
+wallet file, the pool view and the note store with its own temp-then-rename and offers no
+seam between the two, so for those the test puts the wreckage where a kill leaves it and
+checks the next command opens the previous contents and the next save replaces the
+wreckage.
+
+**Decided against:** a `--passphrase` flag in any form, and a report printed as the
+command goes. A command adds facts to a `Report` and the shell prints lines or JSON from
+it, so the two forms cannot drift.
+
+## 3. Headers (2026-09-24)
+
+| | measured | bound |
+|---|---|---|
+| a warm header store over localnet (31,261 headers), started as a command starts it, to its first answer | best 950 ms, worst 960 ms, of 3 | **2 s** |
+| the same store filled cold from localnet's node | 13.5 s | none set |
+| 10,000 well-formed headers connecting to nothing | 10,000 refused, 0 retained | the chain's own bound of 200,000 |
+
+The chain start waits while headers arrive, printing the height, and answers at once from
+a store that has not moved in 750 ms. The first version waited three quiet seconds every
+time, which by itself missed the 2 s bound.
+
+A network switch is caught by a file in the header store naming the network it was built
+for, before anything is started; the store is left untouched.
+
+**Read closely:** "A block the chain has not reached" asks the refusal to name the height
+asked for. A standing proof names a block hash and no height, and a hash above the tip is
+one the chain has never seen, so its height is unknowable. The refusal names the tip and
+says to sync.
+
+## 4. The transport (2026-09-24)
+
+| | measured | bound |
+|---|---|---|
+| a hundred feed entries from a ricochet server on this machine | best 12 ms, worst 18 ms, of 3 | **5 s** |
+| 10,000 mutated replies to a submission and 500 mutated head proofs, through this program's wrappers | 9,652 refused at 17 steps, 848 taken, none threw | none may throw |
+
+The wallet opens its own streams to the server for the mailbox and the feed, and reads
+every frame through `BoundedFrames`: four bytes of length, compared with the bound for the
+kind, then the body. Ricochet's own reader takes the length and reads whatever it says.
+
+**A semantic trap, avoided.** libcloak's `send` counts a `TransportFailure` as "never
+sent", and after three releases the note. So once a frame is stored, a missing reply is
+never reported as a failure: the transport keeps polling, and libcloak's own deadline of
+twice the timeout reports the submission unanswered, with the note still reserved. A
+transport that threw on a reply timeout would release a note that may be in a round.
+
+**Frames are compared by what they ask.** The coordinator team is giving catch-up requests
+an id; each is fresh and names nothing, so the privacy tests compare what a request asks
+(kind, first round, count) rather than its bytes.
+
+## 5. `cloak sync` (2026-09-24)
+
+| | measured | bound |
+|---|---|---|
+| 1,000 rounds over a ricochet server on this machine, holding 8 notes | 5,072 ms whole, of which about 4,000 ms is waiting on a head proof the coordinator does not serve yet | **30 s** |
+| the folding and checking inside it | 890 ms | **2 s** |
+
+The folding share is the whole command less the time spent inside the transport, measured
+by a stopwatch wrapped around it. A check that cannot be made because the pool will not
+prove its head saves the fold as folded and unchecked, prints what completed, and exits 1.
+
+**Read closely:** "The round number comes from the chain, not the claim". libcloak refuses
+a head proof whose stated round disagrees with its own leaf count, which is stricter than
+using the leaf count's round: the claim is never used, and neither is anything that came
+with it.
+
+**The live round.** A deposit names the live round's PP3, the round's transaction output 3,
+and the client does not hand announcements back. `cloak sync` keeps the feed entries it
+read (`FeedTap`, above the transport, which still decodes nothing) and records the
+announced transaction of the round the view stands at.
+
+## 6. Payments (2026-09-24)
+
+| | measured | bound |
+|---|---|---|
+| the host's share of `cloak pay`, outside the spend proof, the network and the passphrase | best 50 ms, worst 52 ms, of 3 | **108 ms** |
+| libcloak's own work inside it | 5 ms | libcloak's 8 ms |
+| the spend proof | 39 to 43 ms | none here |
+| the passphrase KDF at the suite's fast setting, twice (open, and rewriting the counter for the change address) | 45 to 51 ms | excluded |
+
+**The bound, read.** The spec bounds the host's share "excluding the spend proof". A spending
+command also unlocks the wallet file, which is Argon2id by design: about 0.4 s at the strong
+setting a person gets. That is the wallet file's deliberate cost, not work this program
+does per payment, so it is reported beside the others and left out of the share. The first
+measurement, 117 ms, included it; it also rewrote the wallet file twice, which is fixed.
+
+`cloak pay` reserves the note **and saves the reservation** before the frame leaves, so
+neither a second process nor a crash between the send and the answer can pick the same note.
+The same path serves `cloak withdraw`.
+
+**The fixture's keys.** The fake pool's notes are minted to a fixture wallet whose keys no
+seed derives. The suite stands those pool keys in for a wallet's own through
+`World.poolKeysForSuite`; the binary never sets it. libcloak's own end-to-end run has the
+same seam.
+
+**The forgery** used for "A round with a forged lineage" is libcloak's lineage attack built
+in memory, mined into a fake chain the payee's header source vouches for. It is refused at
+`PP1 is this pool's script`, with the checker's own sentence.
+
+## 7. Deposits, refunds and withdrawals (2026-09-24)
+
+| | measured | bound |
+|---|---|---|
+| building a deposit outside the spend proof and the funding | 100 ms, best of 3 (including the passphrase KDF) | **500 ms** |
+| the deposit's spend proof | 38 to 46 ms | none here |
+| 1,000 mutated BEEF payments | 500 read, 500 refused at `BEEF`, none threw | none may throw |
+
+**The covenant script.** tstokenlib writes the covenant inside `createDepositTxn` and does not
+export its generator, so the script is read off a transaction built over a throwaway coin;
+the lock depends only on the terms. An export in tstokenlib would remove the detour.
+
+**The transparent side's secrets** (libspiffy's mnemonic, and each deposit's refund key) are
+sealed in `keys.enc` with XChaCha20-Poly1305 under a key expanded from the wallet seed.
+Nothing in there is derived from the seed; the seed only seals it.
+
+**Verified since:** the libspiffy-backed transparent side ran against the regtest node and
+ARC in the localnet end-to-end run (section 10), which found four faults in it that no fake
+could have shown.
+
+## 8. The suite, and why the timing bounds run on their own (2026-09-24)
+
+The host's share of `cloak pay` measured 50 ms alone and 153 ms in the default pack, where
+every test file runs at once on twelve cores. The code was the same; the load was not. The
+bound was not moved. The timing tests are tagged `perf`, skipped in the default pack, and
+run by `dart test -P perf` one file at a time, which is libcloak's own finding carried over:
+a bound on one core read inside a loaded pack measures the pack.
+
+## 9. Mined rounds, read (2026-09-24)
+
+The coordinator now serves catch-up, a mined round by number, and a mined-round notice
+(tstokenlib change `wallet-rounds`, protocol version 3; pool-coordinator change
+`wallet-catch-up`), and libcloak names a refused catch-up (`7c780c7`). What cloak-cli built
+on it:
+
+- **Notices from their own folder.** `readNotices()` drains `pool/notices`; the replies
+  folder holds only answers. `drainReplies()` takes answers an earlier run gave up on, and
+  every command that sends drains it first, matching a late answer to its submission by
+  id, so an unanswered payment gets its real answer and no stale answer is taken as a new
+  request's. Both are on `PoolMailbox`, the concrete transport's; libcloak's port is
+  unchanged.
+- **A round by number** is asked for by cloak-cli itself, over the same opaque transport,
+  from the identity that submitted, and matched by the id the request went out under;
+  libcloak's client does not ask it yet.
+- **Every round is checked** as a head proof is, off this wallet's own headers, and its
+  leaves and nullifiers are read by tstokenlib's `ShieldedLedger.readLeaves`.
+- **A leaf's path, the gap nobody owned.** Above its block a path is made from the pool's
+  frontier at the leaf's own round, which a fold that has moved on cannot give back. `cloak
+  sync` therefore folds to each round something of the wallet's waits on (`FeedLimit`, which
+  stops the feed at that round's announcement), keeps the frontier there, and folds on. The
+  frontier, a few hundred bytes, is dropped once the round is read. A wallet that caught up
+  past such a round by the published runs has no frontier for it; the pool would have to
+  serve the frontier as of a round, which it offered to add.
+- **Settling a round:** its nullifiers mark this wallet's spent notes spent; a payment's
+  payee leaf becomes a standing proof kept in `proofs/`, which `cloak proof` hands over or
+  shortens; the payer's change, a withdrawal's change and a deposit's note are taken on and
+  followed.
+
+**The seam** is libcloak's own: a transfer built here is not in the fixture's round 2, so a
+test that needs it there points the payment's record at the note round 2 pays. Everything
+after (the round read, the leaf found, the path made, the payee's check) runs on real
+bytes; the payee's check of a proof made this way passes.
+
+**Asked of the coordinator, and done.** The late `expired` (sent after an `accepted`, when
+the coordinator drops a transfer at close) now goes to the notices folder, so the replies
+folder holds only answers. `cloak sync` releases the note it names; any other reply found
+among the notices is ignored, since a notice is never an answer. The notice is slim: the
+submission ids, the round, the two txids and the witness's place in its block, 141 bytes at
+test parameters where the full transactions were about 2.6 MB at production. So a round is
+always asked for by number, and its answer must carry the txids its notice named, or
+neither is believed.
+
+**A transport fault found on the way.** A request made while a reply from an earlier one
+sat buffered handed that reply back without sending its own frame, which dropped the frame
+unsent. And a wait whose caller had given up (libcloak's deadline, twice the timeout) went
+on polling for a second more, so a late reply could be marked delivered and handed to
+nobody. A request now always sends first and is answered only by what arrives after it,
+and its wait ends before the caller's, so a late reply stays for `drainReplies`. The
+localnet transport test answers a request only after its caller gave up, and fails on the
+old wait.
+
+## 10. End to end on localnet (2026-09-24)
+
+`test/localnet_e2e_test.dart` (`POOL_LOCALNET=1 POOL_E2E=1 dart test -t e2e`) issues a pool
+with the coordinator's `PoolCreator`, runs it with `PoolServer` over a ricochet server, and
+drives three wallets through the **compiled binary**, one process a command, with the real
+ports: libspiffy's header chain and transparent wallet against the regtest node and ARC,
+and the ricochet transport. A block is mined every four seconds, slow enough for a
+command's chain to settle between blocks.
+
+- **A deposit a round takes in** (8.2): coins from the node, handed over as a BEEF carrying
+  the node's merkle proof, are taken in by `cloak receive` (7.1, against the real
+  libspiffy); `cloak deposit` builds the transfer, libspiffy funds the covenant and ARC takes
+  it; the next syncs submit it once mined, and read round 1 to take the note on.
+- **A payment out of it**: into round 2, read by the payer's sync, proved by `cloak proof`,
+  checked by the payee against its own headers, acknowledged, and the acknowledgement
+  checked; the payee holds 1,200 and the payer's change of 3,800 is taken on.
+- **A withdrawal**: 1,000 out of the change into round 3, and a mined round pays the node's
+  address exactly that; 2,800 is left.
+- **A refund** (8.3): a deposit never submitted is refused a refund before its height, naming
+  it, and refunded after; the refund spends the covenant and returns the deposit less its fee.
+
+All four pass, in 5 min 57 s on an Apple M3 Pro, most of it waiting for blocks and
+rounds. Measured on the way: the pool issued in 26.9 s; a cold `cloak sync` (libspiffy
+loading 31,000 regtest headers) 19 to 22 s, a warm one 10.5 s; `cloak deposit` 5.2 s; a
+deposit to a spendable note 53 s, which is round 1's 20 s deadline plus mining; `cloak pay`
+2.6 s; `cloak withdraw` 2.6 s; `cloak balance` 23 to 30 ms.
+
+**What it found**, none of it visible to a fake:
+
+- libspiffy answers a balance query about a wallet it never heard of with zero, so asking
+  for a balance to learn whether the wallet exists always said yes and the wallet was never
+  made. It is now asked to make the wallet every time, and "already exists" is the answer
+  after the first run.
+- libspiffy makes no mnemonic of its own. One is drawn here from `Random.secure()` and handed
+  over; libspiffy keeps it in the sealed store, as section 7 already said.
+- libspiffy issues a receiving address only with an invoice, and refuses an invoice for
+  nothing, so `freshAddress` asks for one satoshi; only the address is kept.
+- `SpiffyChain.stop` closed Isar under libspiffy work still in flight after shutdown, which
+  failed that work and once crashed the process inside Isar's native library. The database
+  is now left open (the process ends right after), and a process that runs many commands
+  opens each once.
+- A compiled binary cannot resolve a `package:` resource: dartsv's BIP-39 wordlist is one,
+  so the English list is carried in the program (checked word for word against dartsv's by
+  `test/bip39_test.dart`); and tstokenlib's native kernels, which ML-KEM needs, are found by
+  `STARK_KERNELS_LIB` (README, "Running the compiled binary").
+- libspiffy prints to stdout, which broke `--json`'s one object. What the libraries print is
+  now a log line under `-v` and nothing otherwise.
+- A new pool's first deposit was refused: before round 1 there is no announcement, so no
+  live round's transaction. The live round at round 0 is the genesis, whose PP3 is the
+  issuance's.
+
+**On localnet itself:** ARC and the ricochet server both use port 9090, ricochet on the IPv4
+loopback only, so ARC is reached on `[::1]`. And the run was made against libspiffy's last
+commit, `0878996`, through a local `pubspec_overrides.yaml`, because libspiffy's working tree
+was mid-edit and did not compile.
+
+
+## 11. The record closed (2026-09-24)
+
+Every number in sections 2 to 10 was taken on an Apple M3 Pro (twelve cores), macOS 14,
+Dart 3.11.5, at tstokenlib's test parameters (a two-by-two pool, 32 leaves a round), with
+the passphrase KDF at the suite's fast setting except where a section says otherwise. The
+localnet runs used `../localnet`'s regtest node (about 31,000 headers) and ARC, and a
+ricochet server built from `../go-ricochet` against localnet's PostgreSQL.
+
+### What the sibling repositories landed
+
+Section 1's table was written before any of it was committed. What cloak-cli builds on, by
+commit:
+
+| repository | commit | what |
+|---|---|---|
+| `../libspiffy` | `0878996` | the header chain's export (`BlockHeaderChain`, `BlockHeaderAnchor`, `HeaderAcceptResult`, `HeaderRejectReason`, `NetworkParams`), with libspiffy's own BRC-42 work |
+| `../libcloak` | `e0ffd60` | `onramp-builders`: `DepositBuilder`, `WithdrawalBuilder`, `submitDeposit`, `submitWithdrawal`, four journal kinds |
+| `../libcloak` | `2c42a6b`, `7c780c7` | its fake pools answer a round by number; a refused catch-up is a named refusal |
+| `../tstokenlib` | `37ab3ac`, `48b5c35` | the catch-up messages exported; `wallet-rounds`: protocol version 3, ids and refusals on catch-up, a round by number, `ShieldedLedger.readLeaves`, and the slim mined-round notice |
+| `../pool-coordinator` | `e83819e` | `wallet-catch-up`: catch-up answered at the last mined round, rounds by number, notices and late `expired` replies to the notices folder |
+
+tstokenlib is on its `feature/shielded-pool` branch; the others are on `main`.
+
+### Decided against, group by group
+
+Sections 1, 2 and 8 say what they decided against. For the others:
+
+- **Headers (3).** A second database for headers apart from libspiffy's wallet: libspiffy
+  keeps both in one Isar database, and splitting them would mean running its SPV core
+  without its actor system, a change in libspiffy for no gain here. The spec was narrowed
+  instead, with the person, to "header records name no wallet". A header chain written
+  here, and headers from a third party, for the reasons in the change's design.
+- **The transport (4).** A shared package for the ricochet host, and lifting the
+  coordinator's own transport, which would make the wallet depend on its server. Any
+  connection to the coordinator but through the ricochet server. Decoding anything in the
+  transport: it hands frames up undecoded and libcloak matches them by id.
+- **`cloak sync` (5).** Refusing a fold the pool will not prove: it is saved as folded and
+  unchecked, and the next check need not fold it again. Catching up by the published runs
+  past a round the wallet waits on: it folds to that round and keeps the frontier, since a
+  leaf's path cannot be made without it. Asking for a round's transactions anywhere but the
+  coordinator, and from any identity but the one that submitted into it.
+- **Payments (6).** Counting the passphrase KDF in the host's share of `cloak pay`; sending
+  an invoice, a proof or an acknowledgement anywhere: each is a file the person hands over.
+- **Deposits (7).** A deposit in one command that waits for its covenant to be mined: it is
+  two, decided with the person. Refund keys derived from the seed: they are drawn at
+  random and sealed. Building the covenant through an export tstokenlib does not have.
+
+### The suite, counted
+
+`dart analyze lib bin test`: no issues. Then each form of the suite, on 2026-09-24:
+
+| form | passed | skipped | what the skipped are |
+|---|---|---|---|
+| `dart test` | 119 | 13 | the localnet runs, the end-to-end run and the timing bounds, each asked for by its own switch |
+| `dart test -P perf` | 5 | 3 | localnet's three timing bounds, without `POOL_LOCALNET` |
+| `POOL_LOCALNET=1 dart test` | 121 | 11 | the timing bounds and the end-to-end run |
+| `POOL_LOCALNET=1 dart test -P perf` | 8 | 0 | |
+| `POOL_LOCALNET=1 POOL_E2E=1 dart test -t e2e` | 4 | 0 | |
+
+The last readings of the bounds, in `POOL_LOCALNET=1 dart test -P perf`: `cloak --help`, first
+run of a fresh binary, 355 ms (bound 500); `cloak balance` 22 ms (3 s); saving 1,000 notes,
+best 49 ms (500 ms); a warm chain's first answer, best 961 ms (2 s); a hundred feed entries,
+best 10 ms (5 s); 1,000 rounds, 5,042 ms whole (30 s) and 836 ms folding (2 s); the host's
+share of `cloak pay`, best 61 ms (108 ms); building a deposit, best 107 ms (500 ms).
+
+**Found while counting.**
+
+- The localnet form hung, twice, on the thousand-round run: every ricochet server the suite
+  starts opened its operator surface on 127.0.0.1:9090, so two in one pack collided, and
+  that address is also where localnet publishes ARC. The test server now switches the
+  surface off. With the hang gone, the run's folding share read 2,241 ms in the loaded
+  pack against 836 ms alone, which is section 8's finding again: localnet's three timing
+  bounds are now tagged `perf` like the others, and run by `POOL_LOCALNET=1 dart test -P
+  perf`, one file at a time.
+- The startup test printed the first run of `cloak --help` and asserted on the best one:
+  the list was sorted in place inside the print. It now asserts on the first run, as
+  section 2 says the bound is. The first run reads 314 to 403 ms alone; once, straight after
+  compiling and after the heavy localnet runs, it read 950 ms, which did not recur.
+- Section 5's thousand-round run waits on "a head proof the coordinator does not serve".
+  The coordinator serves it now; the run starts no coordinator, so nobody answers, and the
+  test now says so.
