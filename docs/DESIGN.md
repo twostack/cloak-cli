@@ -681,3 +681,19 @@ person to `--from-genesis`. That reading is right for silence from a pool that w
 and wrong for a frame the server never took. The transport now says when its last frame
 was not stored (`PoolMailbox.unreachable`), and `sync` then refuses at "transport": "the
 pool could not be asked: <why>. Nothing was learned about the pool; ...".
+
+## 18. v0.1.2 built (2026-09-25)
+
+Section 17's fix, released by `docs/RELEASING.md`. `v0.1.2` (annotated) on `3886117`, whose
+`ci` run `36130024827` was green. Release run `36131348024` passed:
+`cloak-0.1.2-linux-amd64.tar.gz` 8,085,083 bytes, `cloak-0.1.2-linux-arm64.tar.gz`
+7,844,761 bytes, both attested to `release.yml` at `refs/tags/v0.1.2`. `tool/release/macos.sh`
+from a clean worktree of the tag at `../c012` (section 16's path limit): suite 167 passed, 14
+skipped; notarization `Accepted` (submission `90e8398f-ba30-4713-aaea-4722019833ab`);
+`cloak-0.1.2-macos-arm64.dmg` 9,598,905 bytes as uploaded, `Notarized Developer ID`; the
+quarantined program printed `cloak 0.1.2 (3886117...)`. All three files check against
+`SHA256SUMS` as downloaded. Published as a full release and marked latest; `install.sh` into
+an empty home directory installed `cloak 0.1.2`.
+
+Open, as for 0.1.1: the localnet end-to-end run against the signed program (step 6) and the
+clean machines (step 8).
