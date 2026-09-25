@@ -54,13 +54,20 @@ void main() {
         reason: 'a text file has no business holding one, published or not');
   });
 
-  test('a certificate and the signing secrets\' own values are found', () {
+  test('a certificate is public, and passes', () {
+    // the Linux Dart runtime embeds its root certificates in every program
+    File(p.join(bundle.path, 'bin', 'cloak'))
+        .writeAsStringSync('-----BEGIN CERTIFICATE-----\nMIIB...\n-----END CERTIFICATE-----\n', mode: FileMode.append);
+    expect(scan(bundle), isEmpty);
+  });
+
+  test('a private key and the signing secrets\' own values are found', () {
     File(p.join(bundle.path, 'LICENSE')).writeAsStringSync('-----BEGIN ENCRYPTED PRIVATE KEY-----\n', mode: FileMode.append);
     File(p.join(bundle.path, 'README.md')).writeAsStringSync('hunter2-not-a-real-password\n', mode: FileMode.append);
     File(p.join(bundle.path, 'developer-id.p12')).createSync();
     final finds = scan(bundle, literals: {'CERTIFICATE_PASSWORD': 'hunter2-not-a-real-password'});
     expect(finds, containsAll([
-      contains('LICENSE holds a PEM block'),
+      contains('LICENSE holds a private key in PEM form'),
       contains('README.md holds the value of CERTIFICATE_PASSWORD'),
       contains('developer-id.p12 is named like'),
     ]));

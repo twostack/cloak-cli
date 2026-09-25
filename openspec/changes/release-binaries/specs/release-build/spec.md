@@ -85,8 +85,9 @@ the program `bin/cloak`, the two native libraries under `lib/`,
 
 #### Scenario: A bundle holds no one's secrets
 - **WHEN** a released bundle is searched for wallet files (`wallet.enc`, `keys.enc`,
-  `identity.seed`, `notes.store`), private keys in WIF or hex form, and the signing
-  certificate or its password
+  `identity.seed`, `notes.store`), private keys in WIF, hex or PEM form, the signing key
+  as a PKCS#12 file, and the signing password (a certificate alone is public, and the Linux
+  Dart runtime carries root certificates in every program built on it)
 - **THEN** none SHALL be found
 
 ### Requirement: A bundle links only to what every machine of its platform has

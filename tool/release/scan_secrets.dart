@@ -15,7 +15,9 @@ import 'package:crypto/crypto.dart';
 ///
 /// - a wallet's files by name (`wallet.enc`, `notes.store`, `identity.seed`
 ///   and the rest a wallet directory holds), and key or certificate files;
-/// - PEM blocks and PKCS#12 files, the forms a signing certificate travels in;
+/// - private keys in PEM form, and PKCS#12 files, the forms a signing key
+///   travels in (a certificate alone is public: the Linux Dart runtime carries
+///   149 root certificates, and every program built on it holds them);
 /// - private keys in WIF form, found by their checksum, so a run of base58
 ///   letters that happens to be in a binary is not mistaken for one;
 /// - private keys in hex: any run of 64 hex digits in a text file, and in a
@@ -95,7 +97,7 @@ Set<String> publishedHex(Map<String, dynamic> config, Uri configDir) {
 
 final _hex64 = RegExp(r'(?<![0-9a-fA-F])[0-9a-fA-F]{64}(?![0-9a-fA-F])');
 final _base58 = RegExp(r'(?<![1-9A-HJ-NP-Za-km-z])[5KLc9][1-9A-HJ-NP-Za-km-z]{50,51}(?![1-9A-HJ-NP-Za-km-z])');
-final _pem = RegExp(r'-----BEGIN [A-Z ]*(PRIVATE KEY|CERTIFICATE)-----');
+final _pem = RegExp(r'-----BEGIN [A-Z ]*PRIVATE KEY-----');
 const _textFiles = {'README.md', 'LICENSE', 'THIRD_PARTY_NOTICES'};
 
 /// Each find in [bundle], as a sentence naming the file.
@@ -115,7 +117,7 @@ List<String> scan(Directory bundle, {Map<String, String> literals = const {}, Se
     if (bytes.length > 4 && bytes[0] == 0x30 && bytes[1] == 0x82 && name.contains('.')) {
       finds.add('$rel looks like a PKCS#12 or DER key file');
     }
-    if (_pem.hasMatch(text)) finds.add('$rel holds a PEM block: ${_pem.firstMatch(text)![0]}');
+    if (_pem.hasMatch(text)) finds.add('$rel holds a private key in PEM form: ${_pem.firstMatch(text)![0]}');
     for (final m in _base58.allMatches(text)) {
       if (isWif(m[0]!)) finds.add('$rel holds a private key in WIF form, at byte ${m.start}');
     }
