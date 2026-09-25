@@ -15,7 +15,7 @@ class CountingPorts implements Ports {
   Transport? transportPort;
   TransparentSide? transparentSide;
 
-  int headerStarts = 0, transportOpens = 0, transparentStarts = 0, closes = 0;
+  int headerStarts = 0, transportOpens = 0, transparentStarts = 0, offlineStarts = 0, closes = 0;
 
   CountingPorts({this.headerSource, this.transportPort, this.transparentSide});
 
@@ -36,8 +36,10 @@ class CountingPorts implements Ports {
   }
 
   @override
-  Future<TransparentSide> transparent(WalletDir dir, CloakConfig config, SealedStore sealed) async {
+  Future<TransparentSide> transparent(WalletDir dir, CloakConfig config, SealedStore sealed,
+      {bool offline = false}) async {
     transparentStarts++;
+    if (offline) offlineStarts++;
     final t = transparentSide;
     if (t == null) throw const HeaderSourceFailure('start', 'this test gave the command no transparent side');
     return t;

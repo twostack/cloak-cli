@@ -114,6 +114,17 @@ void main() {
       expect(File(h.dir.poolView).existsSync(), isFalse);
     });
 
+    test('A reply an earlier run gave up on is not taken as this run\'s answer', () async {
+      // a first sync that stopped after asking for the frontier leaves its
+      // answer in the replies folder, and the next first sync's head request
+      // was answered with it
+      final t = fp.transport()..lateReplies.add(fp.frontierReply(2).encode());
+      final ran = await sync(t);
+      expect(ran.code, Exit.done, reason: '$ran');
+      expect(facts(ran)['round'], 2);
+      expect(t.lateReplies, isEmpty);
+    });
+
     test('--from-genesis folds the whole feed when a person asks for it', () async {
       final t = fp.transport(catchUp: false);
       final ran = await sync(t, ['--from-genesis']);

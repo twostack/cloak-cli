@@ -43,7 +43,7 @@ Future<void> runSync(Call call) async {
   // answers an earlier run gave up on, before anything is sent, or this run's
   // requests would take them as their own; and the notices, whose dropped
   // transfers free notes before anything is chosen
-  if (s.pool != null) await settleStaleReplies(s);
+  if (s.config.hasPool) await settleStaleReplies(s);
   final notices = s.pool == null ? <int, PoolRoundMined>{} : await drainNotices(s);
 
   final timed = TimedTransport(await s.transport());

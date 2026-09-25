@@ -45,6 +45,7 @@ class FakeTransparentSide implements TransparentSide {
     final b = BEEF.parse(Uint8List.fromList(beef));
     final tx = Transaction.fromHex(hex.encode(b.txs.last));
     if (refuseReceives != null) throw Refusal('BEEF', refuseReceives!);
+    if (!parkReceives) coins.add((tx.id, 1234));
     return ReceiveOutcome(tx.id, 1234, waitingFor: parkReceives ? -1 : null);
   }
 

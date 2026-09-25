@@ -493,7 +493,11 @@ Per asset, three lines that are never added together:
 - **stale**: notes you hold but cannot spend until `cloak sync` brings the view closer to
   the pool's tip.
 
-Reads only local files: no passphrase, no network.
+Above them, the BSV you received with `cloak receive` and have not yet deposited: the
+**transparent** amount.
+
+Reads only local files: no network, and no passphrase, except once for a wallet that
+received with cloak 0.1.3 or earlier, whose transparent amount is read from its store then.
 
 ### notes
 

@@ -1,10 +1,14 @@
+import 'dart:io';
+
 import 'package:args/args.dart';
 import 'package:convert/convert.dart';
 import 'package:libcloak/libcloak.dart';
 import 'package:tstokenlib/tstokenlib.dart' show PoolHash;
 
 import '../shell/call.dart';
+import '../wallet/sealed_store.dart';
 import '../wallet/session.dart';
+import '../wallet/state_file.dart';
 
 /// How an asset is named to a person: BSV by name, anything else by its
 /// lanes.
@@ -17,19 +21,40 @@ String assetName(List<int> asset) =>
 /// can answer it alone.
 int _tip(Session s) => s.view?.round ?? 0;
 
-/// `cloak balance`: three lines per asset, never added up.
+/// `cloak balance`: three lines per asset, never added up, and the BSV held
+/// on the transparent side, waiting to be deposited.
 ///
 /// Spendable, reserved and stale are kept apart because a single total hides
 /// the two things that stop a payment: money already in flight, and money the
-/// view has fallen too far behind to anchor. It reads the note store and the
-/// pool view and nothing else: no passphrase, no chain, no pool.
+/// view has fallen too far behind to anchor. It reads the note store, the
+/// pool view and the wallet state and nothing else: no passphrase, no chain,
+/// no pool. The transparent amount is the one recorded when a command last
+/// opened that side, which every command that moves its coins does.
+///
+/// A wallet whose transparent side exists and has no amount recorded, one
+/// that received before amounts were recorded, is read once: the side is
+/// opened from its store, offline, which asks for the passphrase, and the
+/// amount is recorded for every balance after it.
 Future<void> runBalance(Call call) async {
+  if (call.dir.holdsWallet &&
+      (await CloakState.open(call.dir)).transparentSats == null &&
+      File(SealedStore.pathIn(call.dir)).existsSync()) {
+    final w = await call.open(write: true, keys: true);
+    await w.transparent(offline: true);
+    await w.save(view: false, store: false);
+    await w.close();
+  }
   final s = await call.open();
   final r = call.report;
+  final sats = s.state.transparentSats;
+  r.quiet('transparent', sats);
+  if (sats != null && sats > 0) {
+    r.say('transparent: $sats satoshis of BSV, not yet in the pool; cloak deposit moves it in');
+  }
   final view = s.view;
   if (s.pool == null || view == null) {
     r
-      ..add('assets', const [], 'nothing held: this wallet has not synced with its pool yet')
+      ..add('assets', const [], 'nothing held in the pool: this wallet has not synced with its pool yet')
       ..quiet('round', 0);
     return;
   }

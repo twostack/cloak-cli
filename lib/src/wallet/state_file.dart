@@ -273,6 +273,12 @@ class CloakState {
   final List<DepositRecord> deposits;
   final List<TransparentRecord> transparent;
 
+  /// The satoshis the transparent side could spend when a command last opened
+  /// it, or null before one has. Only this wallet's own commands move those
+  /// coins, each opening the side to do it, so `cloak balance` reads this
+  /// rather than asking for the passphrase and starting the chain.
+  int? transparentSats;
+
   CloakState({
     this.descriptor,
     this.liveRound,
@@ -283,6 +289,7 @@ class CloakState {
     Map<int, List<int>>? checkpoints,
     List<DepositRecord>? deposits,
     List<TransparentRecord>? transparent,
+    this.transparentSats,
   })  : issued = issued ?? [],
         payments = payments ?? [],
         withdrawals = withdrawals ?? [],
@@ -302,6 +309,7 @@ class CloakState {
         'checkpoints': {for (final e in checkpoints.entries) '${e.key}': hex.encode(e.value)},
         'deposits': [for (final d in deposits) d.toJson()],
         'transparent': [for (final t in transparent) t.toJson()],
+        if (transparentSats != null) 'transparentSats': transparentSats,
       });
 
   static CloakState decode(String text, {required String path}) {
@@ -341,6 +349,7 @@ class CloakState {
         },
         deposits: [for (final x in list('deposits')) DepositRecord.fromJson(x)],
         transparent: [for (final x in list('transparent')) TransparentRecord.fromJson(x)],
+        transparentSats: m['transparentSats'] as int?,
       );
     } on Refusal catch (e) {
       throw Refusal(e.step, '${e.reason} (reading $path)');

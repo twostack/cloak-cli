@@ -32,6 +32,9 @@ import 'spiffy_transparent.dart';
 /// Starting it is the expensive thing this program does (Isar, an actor
 /// system, peer connections), which is why only a command that asks a header
 /// question starts it, and why it is stopped when the command returns.
+///
+/// Started offline, it dials no one and waits for no tip: it is opened only
+/// to read what the transparent side has stored.
 class SpiffyChain {
   /// The file recording which network the header store was built under.
   static const networkFile = 'network';
@@ -78,14 +81,15 @@ class SpiffyChain {
       {StringSink? progress,
       SealedStore? sealed,
       Map<String, String> env = const {},
-      NativeLibraries? native}) async {
+      NativeLibraries? native,
+      bool offline = false}) async {
     await checkNetwork(dir, config);
     await _startIsar(native ?? NativeLibraries.ofProcess(env));
     await Directory(dir.chain).create(recursive: true);
     final isar = await _open(dir.chain);
     final system = LibSpiffyActorSystem();
     final arc = arcFor(config, env);
-    final cdnUrl = CdnSeed.urlFor(dir, config);
+    final cdnUrl = offline ? null : CdnSeed.urlFor(dir, config);
     final seed = cdnUrl == null ? null : CdnSeed(cdnUrl, progress);
     final logs = seed == null ? null : Logger.root.onRecord.listen(seed.onLog);
     try {
@@ -96,7 +100,7 @@ class SpiffyChain {
         // regtest has no default peers, so with none named there is nothing
         // to connect to, and libspiffy refuses to start P2P with no one to
         // talk to; the transparent side and ARC need no peer
-        enableP2P: config.peers.isNotEmpty || config.network != CloakNetwork.regtest,
+        enableP2P: !offline && (config.peers.isNotEmpty || config.network != CloakNetwork.regtest),
         peerAddresses: config.peers.isEmpty ? null : config.peers,
         secureStorage: sealed,
         arcConfig: arc,
@@ -116,7 +120,9 @@ class SpiffyChain {
     await File(p.join(dir.chain, networkFile)).writeAsString(config.network.name);
     final chain = system.headerChain;
     await seed?.finish(dir, chain.bestHeight);
-    await _waitForSettle(chain, progress, networkHeight: () => system.spiffyNodeBridge?.currentHeight ?? 0);
+    if (!offline) {
+      await _waitForSettle(chain, progress, networkHeight: () => system.spiffyNodeBridge?.currentHeight ?? 0);
+    }
     return SpiffyChain._(SpiffyHeaderSource(chain), system, arc, sealed != null);
   }
 

@@ -376,6 +376,42 @@ void main() {
       expect(headers.calls, ['tip'], reason: 'the block it waits for is never asked about');
     });
 
+    test('What was received shows in the balance before the wallet has synced with its pool', () async {
+      final h = Harness.make(ports: CountingPorts(headerSource: fp.headers()), poolKeys: fp.keys, now: early);
+      made.add(h);
+      expect((await h.initWithPool()).code, Exit.done);
+      final before = await h.run(['balance', '--json']);
+      expect((jsonDecode(before.out) as Map)['transparent'], isNull, reason: 'nothing has opened the transparent side');
+      h.ports.transparentSide = FakeTransparentSide(coins: []);
+      expect((await h.run(['receive', hex.encode(beefAt(5))])).code, Exit.done);
+      final ran = await h.run(['balance']);
+      expect(ran.code, Exit.done, reason: '$ran');
+      expect(ran.out, contains('transparent: 1234 satoshis'));
+      expect(ran.out, contains('nothing held in the pool'));
+      expect((jsonDecode((await h.run(['balance', '--json'])).out) as Map)['transparent'], 1234);
+    });
+
+    test('A wallet that received before amounts were recorded is read once, offline', () async {
+      final h = Harness.make(ports: CountingPorts(headerSource: fp.headers()), poolKeys: fp.keys, now: early);
+      made.add(h);
+      final init = await h.initWithPool();
+      expect(init.code, Exit.done);
+      // what an earlier build left: the transparent side's store, and no
+      // amount recorded for it
+      final sealed = await SealedStore.open(h.dir, WalletSeed.fromHex(init.out.trim()));
+      await sealed.setString('wallet', 'held');
+      h.ports.transparentSide = FakeTransparentSide(coins: [('dd' * 32, 10000000)]);
+      final ran = await h.run(['balance']);
+      expect(ran.code, Exit.done, reason: '$ran');
+      expect(ran.out, contains('transparent: 10000000 satoshis'));
+      expect(h.ports.offlineStarts, 1, reason: 'opened from its store, without the network');
+      expect(h.ports.headerStarts + h.ports.transportOpens, 0);
+      // and recorded: the next balance opens nothing
+      final again = await h.run(['balance']);
+      expect(again.out, contains('transparent: 10000000 satoshis'));
+      expect(h.ports.transparentStarts, 1);
+    });
+
     test('A payment with a bad merkle proof', () async {
       final h = await payer();
       h.ports.transparentSide = FakeTransparentSide()..refuseReceives = 'the merkle proof does not reach the header at height 5';

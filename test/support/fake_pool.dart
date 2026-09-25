@@ -11,6 +11,10 @@ import 'fakes.dart';
 
 /// A fake pool's transport with a mailbox: notices the coordinator sent
 /// unasked, and replies an earlier run gave up waiting for.
+///
+/// As on a ricochet server, a late reply still in the replies folder is what
+/// the next request is answered with: the frame is sent, and the first reply
+/// the folder hands over is taken as its answer.
 class FakePoolTransport extends FakeTransport implements PoolMailbox {
   final List<List<int>> notices = [];
   final List<List<int>> lateReplies = [];
@@ -19,6 +23,13 @@ class FakePoolTransport extends FakeTransport implements PoolMailbox {
   String? unreachable;
 
   FakePoolTransport({super.feed});
+
+  @override
+  Future<List<int>> request(List<int> frame, {Duration timeout = const Duration(seconds: 30)}) async {
+    if (lateReplies.isEmpty) return super.request(frame, timeout: timeout);
+    sent.add(List<int>.from(frame));
+    return lateReplies.removeAt(0);
+  }
 
   @override
   Future<List<List<int>>> drainReplies() async {

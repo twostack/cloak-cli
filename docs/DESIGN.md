@@ -746,3 +746,28 @@ release and marked latest; `install.sh` into an empty home directory installed `
 
 Open, as for 0.1.1 and 0.1.2: the localnet end-to-end run against the signed program (step 6)
 and the clean machines (step 8).
+
+## 22. A first sync took an earlier run's answer (2026-09-26)
+
+A first `cloak sync` that stopped after asking for the frontier left the pool's answer in the
+replies folder, and the next first sync's head request was answered with it: refused at
+"catch-up", "the pool answered a head request with a frontier reply". `cloak sync` takes
+the replies an earlier run gave up on out of the folder before it sends anything, but only
+for a wallet that had read its pool's descriptor, so a wallet that had never synced skipped
+it. It now does so whenever the wallet names a pool. The test pool hands a reply left in
+the folder to the next request, as a ricochet server does.
+
+## 23. The balance shows what was received (2026-09-26)
+
+`cloak receive` took a payment of 10,000,000 satoshis and `cloak balance` then said "nothing
+held": the balance read only the pool, and received BSV sits on the transparent side until a
+deposit. Reading that side means libspiffy, which takes the passphrase and a chain start, and
+the balance is meant to need neither. So every command that opens the transparent side
+records what it can spend when it saves (`transparentSats` in `state.json`), `receive` now
+saves, and `cloak balance` prints it above the pool's lines. Only this wallet's own commands
+move those coins, each opening the side to do it, so the recorded amount is the amount.
+
+A wallet that received before amounts were recorded has a sealed store (`keys.enc`) and no
+amount. Its first balance opens the transparent side offline, from its store, with no peer
+dialled and no tip waited for, which asks for the passphrase once and records the amount.
+libspiffy loads its wallets before it starts P2P, so an offline start answers a balance.

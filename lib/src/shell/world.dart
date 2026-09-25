@@ -82,8 +82,9 @@ abstract interface class Ports {
 
   /// The transparent side: BEEF in, coins held, signing and broadcast. Its
   /// secrets are in [sealed], which only a session holding the wallet's seed
-  /// can open.
-  Future<TransparentSide> transparent(WalletDir dir, CloakConfig config, SealedStore sealed);
+  /// can open. With [offline] nothing is dialled: the side is opened from
+  /// what is stored, to read what it holds, and the chain is not synced.
+  Future<TransparentSide> transparent(WalletDir dir, CloakConfig config, SealedStore sealed, {bool offline = false});
 
   /// Stops whatever was started. Called once, when the command returns.
   Future<void> close();

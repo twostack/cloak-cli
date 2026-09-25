@@ -166,11 +166,12 @@ class Session {
   ///
   /// It needs the wallet's keys, because its secrets are sealed by the seed;
   /// and it must be asked for before anything asks the chain, because
-  /// libspiffy takes its secret storage only when it starts.
-  Future<TransparentSide> transparent() async {
+  /// libspiffy takes its secret storage only when it starts. [offline] opens
+  /// it from what is stored, without the network, to read what it holds.
+  Future<TransparentSide> transparent({bool offline = false}) async {
     final t = _transparent;
     if (t != null) return t;
-    return _transparent = await call.world.ports.transparent(dir, config, await sealed());
+    return _transparent = await call.world.ports.transparent(dir, config, await sealed(), offline: offline);
   }
 
   /// The transparent side's sealed secrets, opened with the wallet's seed.
@@ -205,6 +206,8 @@ class Session {
   /// file that holds it more often than the address counter demands.
   Future<void> save({bool view = true, bool store = true}) async {
     if (lock == null) throw StateError('a session opened for reading does not save');
+    final t = _transparent;
+    if (t != null) state.transparentSats = await t.spendable();
     final v = this.view;
     if (view && v != null) await PoolViewFile.save(dir.poolView, v);
     final s = _store;
