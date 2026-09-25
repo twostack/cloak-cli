@@ -5,6 +5,7 @@ import 'dart:io';
 import 'package:isar/isar.dart';
 import 'package:libcloak/libcloak.dart';
 import 'package:libspiffy/libspiffy.dart';
+import 'package:logging/logging.dart';
 import 'package:path/path.dart' as p;
 
 import '../native/native_libraries.dart';
@@ -12,6 +13,7 @@ import '../shell/world.dart';
 import '../wallet/config.dart';
 import '../wallet/wallet_dir.dart';
 import '../wallet/sealed_store.dart';
+import 'cdn_seed.dart';
 import 'spiffy_header_source.dart';
 import 'spiffy_transparent.dart';
 
@@ -22,6 +24,10 @@ import 'spiffy_transparent.dart';
 /// configured network's genesis; a store built under another network is
 /// refused naming both, before anything is started, and is never cleared: it
 /// is public data, and a person may want it back when they switch again.
+///
+/// An empty store is seeded from the configured CDN before peers are asked
+/// (see [CdnSeed]), since peers drop a connection long before they have
+/// handed over a whole chain.
 ///
 /// Starting it is the expensive thing this program does (Isar, an actor
 /// system, peer connections), which is why only a command that asks a header
@@ -79,6 +85,9 @@ class SpiffyChain {
     final isar = await _open(dir.chain);
     final system = LibSpiffyActorSystem();
     final arc = arcFor(config, env);
+    final cdnUrl = CdnSeed.urlFor(dir, config);
+    final seed = cdnUrl == null ? null : CdnSeed(cdnUrl, progress);
+    final logs = seed == null ? null : Logger.root.onRecord.listen(seed.onLog);
     try {
       await system.initialize(
         isar: isar,
@@ -91,6 +100,8 @@ class SpiffyChain {
         peerAddresses: config.peers.isEmpty ? null : config.peers,
         secureStorage: sealed,
         arcConfig: arc,
+        cdnBaseUrl: cdnUrl,
+        onHeaderSyncProgress: seed?.onProgress,
       );
     } on StateError catch (e) {
       if (e.message.contains('not anchored to')) {
@@ -98,9 +109,13 @@ class SpiffyChain {
             'network', 'the header store in ${dir.chain} does not belong to ${config.network.name}: ${e.message}');
       }
       throw Refusal('chain', 'the chain could not be started: ${e.message}');
+    } finally {
+      await logs?.cancel();
+      seed?.sayFallback();
     }
     await File(p.join(dir.chain, networkFile)).writeAsString(config.network.name);
     final chain = system.headerChain;
+    await seed?.finish(dir, chain.bestHeight);
     await _waitForSettle(chain, progress);
     return SpiffyChain._(SpiffyHeaderSource(chain), system, arc, sealed != null);
   }

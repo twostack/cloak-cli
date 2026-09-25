@@ -6,6 +6,7 @@
 /// every command in-process against a fake pool.
 library;
 
+export 'src/chain/cdn_seed.dart' show CdnSeed;
 export 'src/chain/spiffy_chain.dart' show SpiffyChain;
 export 'src/chain/spiffy_header_source.dart' show SpiffyHeaderSource;
 export 'src/net/ricochet_wallet_transport.dart' show RicochetWalletTransport, BoundedFrames, FrameTooLong, PoolMailbox;

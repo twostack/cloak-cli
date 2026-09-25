@@ -33,6 +33,14 @@ enum CloakNetwork {
 class CloakConfig {
   static const fileVersion = 1;
 
+  /// The header CDN a mainnet or testnet wallet is seeded from unless its
+  /// config names another.
+  static const defaultCdn = 'https://headers.overnode.net';
+
+  /// What `chain.cdn` says to seed from no CDN. A regtest chain is local and
+  /// has none.
+  static const noCdn = 'none';
+
   final CloakNetwork network;
 
   /// The ricochet server, as a multiaddr ending in `/p2p/<peer id>`.
@@ -47,6 +55,12 @@ class CloakConfig {
   /// Peers the header chain syncs from, as `host:port`. Empty means the
   /// network's own seeds.
   final List<String> peers;
+
+  /// Where a header store is seeded from before peers are asked, as an https
+  /// URL, or [noCdn]. Peers drop a connection after about 200,000 headers, so
+  /// an empty store is filled from the CDN and only the headers past the
+  /// CDN's tip come from peers.
+  final String cdn;
 
   /// Blocks deep before a payment proof counts, the block itself counting as
   /// one.
@@ -71,14 +85,19 @@ class CloakConfig {
     this.coordinator,
     this.timeout = const Duration(seconds: 30),
     this.peers = const [],
+    String? cdn,
     int? confirmations,
     this.refundMargin = 144,
     this.refundMinimum = 100,
     this.arcUrl,
-  }) : confirmations = confirmations ?? (network == CloakNetwork.regtest ? 1 : 6);
+  })  : cdn = cdn ?? (network == CloakNetwork.regtest ? noCdn : defaultCdn),
+        confirmations = confirmations ?? (network == CloakNetwork.regtest ? 1 : 6);
 
   /// Whether the pool has been named. A wallet can exist before it has.
   bool get hasPool => server != null && coordinator != null;
+
+  /// The CDN to seed headers from, or null for none.
+  String? get cdnUrl => cdn == noCdn ? null : cdn;
 
   static Future<CloakConfig> load(String path) async {
     final f = File(path);
@@ -114,12 +133,22 @@ class CloakConfig {
     final peers = chain is YamlMap && chain['peers'] is YamlList
         ? [for (final x in chain['peers'] as YamlList) '$x']
         : const <String>[];
+    final cdn = str(chain, 'cdn');
+    if (cdn != null && cdn != noCdn) {
+      final uri = Uri.tryParse(cdn);
+      if (uri == null || uri.scheme != 'https' || uri.host.isEmpty) {
+        throw Refusal('config',
+            '$path gives chain.cdn as $cdn, and it is an https URL or $noCdn: headers from a plaintext CDN '
+            'are chosen by whoever is on the path');
+      }
+    }
     return CloakConfig(
       network: network,
       server: str(pool, 'server'),
       coordinator: str(pool, 'coordinator'),
       timeout: Duration(seconds: num(pool, 'timeout_seconds') ?? 30),
       peers: peers,
+      cdn: cdn,
       confirmations: num(chain, 'confirmations'),
       refundMargin: num(doc['deposit'], 'refund_margin') ?? 144,
       refundMinimum: num(doc['deposit'], 'refund_minimum') ?? 100,
@@ -142,7 +171,9 @@ class CloakConfig {
       ..writeln('  timeout_seconds: ${timeout.inSeconds}')
       ..writeln('chain:')
       ..writeln('  # blocks deep before a payment counts, the block itself counting as one')
-      ..writeln('  confirmations: $confirmations');
+      ..writeln('  confirmations: $confirmations')
+      ..writeln('  # where an empty header store is filled from before peers are asked; https, or $noCdn')
+      ..writeln('  cdn: $cdn');
     if (peers.isEmpty) {
       b.writeln('  peers: []');
     } else {

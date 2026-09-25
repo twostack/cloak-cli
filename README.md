@@ -194,7 +194,10 @@ cloak sync --from-genesis
 ```
 
 The first sync reads the pool's descriptor and starts following the chain's headers, which
-can take a minute on a new machine. `--from-genesis` is only for this first sync of a pool
+can take a minute on a new machine. The headers are downloaded first from a CDN
+(`chain.cdn`), and every one of them is checked (linked back to genesis, proof of work)
+before it is kept. Only the newest come from BSV nodes. If the CDN can't be used, `cloak`
+says why and takes every header from the nodes, which is much slower. `--from-genesis` is only for this first sync of a pool
 that is still young; later syncs are just `cloak sync`.
 
 **3. Take BSV in.** Get a transparent address and have someone pay it:
@@ -549,6 +552,7 @@ pool:
 chain:
   confirmations: 6            # blocks deep before a payment counts, its own block counting as one
   peers: []                   # BSV nodes to take headers from, host:port; empty uses libspiffy's defaults
+  cdn: https://headers.overnode.net   # where an empty header store is filled from first; https, or none
 deposit:
   refund_margin: 144          # blocks ahead a deposit's refund opens at, by default
   refund_minimum: 100         # the fewest blocks ahead it may open at

@@ -519,3 +519,75 @@ cause, when a coordinator build bundles none. Then: the end-to-end run 4 passed 
 sync bound passed (folding 832 ms), and the default suite 150 passed, 13 skipped. Two tests
 that start a second `dart run` read its standard output, where the build hook now announces
 itself; they pass `--verbosity=error`.
+
+## 13. v0.1.0 built (2026-09-25)
+
+**The Linux half, on GitHub.** Three things the first runs found, each fixed on `main` and
+tried with the workflow's manual dry run before the tag moved: `.gitignore`'s bare `native`
+had kept `lib/src/native/` out of the repository (now `/native`); two chain tests asked Isar
+to download a library for Linux arm64, which Isar publishes none of (tests now take the
+library just built, `ISAR_CORE_LIB`); and `dart build cli` gives the program the rpath
+`$ORIGIN/`, which names no machine and is now allowed, while the Linux Dart runtime's 149 root
+certificates are public and no longer taken for a secret (the scan looks for private keys).
+CI on Linux had also found that `dlopen` of a damaged library kills the process there (the
+program now reads a library before loading it), and that a test's child `dart run` rewrote
+the kernels library under the test process (helpers run on `dartvm`).
+
+Release run `36080803420` on `v0.1.0` (`a3a9cab`): Isar built from its commit `6643d064` on
+both runners, the suite, links, smoke test and secret scan passed; the bundles are
+`cloak-0.1.0-linux-amd64.tar.gz` 8,053,596 bytes and `cloak-0.1.0-linux-arm64.tar.gz`
+7,816,605 bytes; the publish job made a draft pre-release with `SHA256SUMS`, and
+`gh attestation verify` binds each bundle to `release.yml` at `refs/tags/v0.1.0`, `a3a9cab`.
+
+**The macOS half, on the maintainer's Mac.** `tool/release/macos.sh` from the clean tag:
+the suite and every check, signed as `Developer ID Application: Werkswinkel Pte Ltd
+(32XLPKQ5TF)`, `cloak-0.1.0-macos-arm64.dmg` 9,563,872 bytes as uploaded, notarization
+`Accepted` (submission `1d96dfba-e6bb-4688-ae9a-891816799e98`), stapled, assessed
+`Notarized Developer ID`; copied out of a quarantined copy, `cloak --version` printed
+`cloak 0.1.0 (a3a9cab...)`. It added the image to the draft and rewrote `SHA256SUMS`, and
+everything downloaded from the draft checks against it.
+
+Open: the draft is unpublished; `install.sh` and the README's install section on clean
+machines (tasks 6.1, 6.4, 7.2); the timings of task 7.1.
+
+## 14. Headers from a CDN first (2026-09-25)
+
+A BSV node drops a connection after about 200,000 headers, so filling an empty store from
+peers alone was slow on testnet and does not finish on mainnet. libspiffy 3.0.0 already
+seeds a store from a CDN before it starts P2P (overnode_v2 does this): it downloads 50,000
+headers per chunk and checks each chunk against the manifest's SHA-256, genesis or the
+stored tip, `prevBlock` links and proof of work before writing it. cloak had never passed it
+a URL. It now passes `chain.cdn`, which defaults to `https://headers.overnode.net` on mainnet
+and testnet and is `none` on regtest. That host serves testnet only for now (1,719,437
+headers, generated 2026-02-18); mainnet returns 404 until its manifest is published.
+
+**A failed CDN is said.** libspiffy's fallback to peers is correct but silent: the reason
+goes to a log warning, and a peer sync from an empty store looks like a hang. cloak prints
+one progress line per chunk, and a `fallbackToP2P` phase prints a line with the URL, the
+reason (taken from libspiffy's `CdnHeaderSyncService` warning, the only place it is given)
+and `chain.cdn: none` as the way to stop trying. That line is printed however the start
+ends: the first live mainnet run found a start that then failed for its peers, where the
+refusal named only the peers. A URL that is not https is refused when the config is read,
+because libspiffy's own check throws inside the start and is only logged.
+
+**Asked once.** A store seeded from the CDN gets a `chain/cdn` file (the URL and the height),
+and later starts do not ask the CDN. Otherwise every command that starts the chain would
+make a request to a third party, and wait out a 30-second timeout whenever the CDN is down,
+which would break the 2 s warm-start bound. A seed that failed leaves no file, so the next
+start tries again.
+
+**Trust.** Proof of work makes a forged mainnet chain impractical. Testnet allows
+minimum-difficulty blocks, so a malicious CDN could make up a testnet chain cheaply;
+testnet coins are worth nothing.
+
+**Tested** by a CDN over https on this machine with mined regtest headers, through the real
+libspiffy: a seed, no request once seeded, a missing manifest, a damaged chunk, and a start
+that fails for its peers after the CDN did.
+
+**Live, 2026-09-25.** An empty testnet store took all 1,719,437 headers from
+`headers.overnode.net` in 36 progress lines and a few minutes; the store was 635 MB. Mainnet
+said `Failed to fetch manifest: HTTP 404`. Both starts were then refused because libspiffy's
+P2P could not connect to its one default seed (`testnet-seed.bitcoinsv.io:18333`,
+`seed.bitcoinsv.io:8333`), although both accept TCP. That failure is libspiffy's and was
+there before this change. A refused start does not mark the store; the next start finds no
+chunks left to fetch and marks it.
