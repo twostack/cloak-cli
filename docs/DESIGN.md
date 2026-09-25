@@ -623,3 +623,61 @@ the CDN, then the rest from peers.
 more bytes follow it (`processData` loops while its buffer is non-empty), so a peer that
 ended its handshake with a bare `verack` would time out. Real nodes send more after it; the
 loopback test node in libspiffy sends a `ping`.
+
+## 16. v0.1.1 built (2026-09-25)
+
+The CDN seed (section 14) and libspiffy 3.0.1 (section 15), released by `docs/RELEASING.md`.
+`v0.1.1` (annotated) on `a3946ad`, whose `ci` run `36123867480` was green. Release run
+`36125740312` passed and made the draft with `cloak-0.1.1-linux-amd64.tar.gz` 8,085,622
+bytes and `cloak-0.1.1-linux-arm64.tar.gz` 7,844,211 bytes; `gh attestation verify` binds
+both to `release.yml` at `refs/tags/v0.1.1`, `a3946ad`.
+
+**macOS.** `tool/release/macos.sh` from a clean worktree of the tag: suite 166 passed, 13
+skipped; signed as `Developer ID Application: Werkswinkel Pte Ltd (32XLPKQ5TF)`; notarization
+`Accepted` (submission `a4b240a2-62a5-4d42-bf1d-ced6bd6e0895`); stapled; the quarantined
+program printed `cloak 0.1.1 (a3946ad...)`. `cloak-0.1.1-macos-arm64.dmg` is 9,599,401 bytes
+as uploaded, and assesses as `Notarized Developer ID`. All three files check against the
+draft's `SHA256SUMS` as downloaded.
+
+**What went wrong: a checkout's path length.** The first two attempts failed in the build
+hook before anything was built. tstokenlib 2.1.0's prebuilt `libstark_kernels` for
+macos_arm64 was linked with 56 bytes to spare after its load commands, and Dart's hook
+renames the library to its absolute path under `.dart_tool/lib`, so that path can be at
+most 87 characters: the checkout's own path at most 38. `~/IdeaProjects/agentic/cloak-cli`
+is 86 characters in all and fits; the worktree `.../cloak-v0.1.1` (89) did not, and neither
+did the scratchpad. The release was built from `.../c011`. The fix belongs in tstokenlib:
+link the published macOS libraries with `-headerpad_max_install_names`.
+
+**Published** on the person's word as a full release, not a pre-release, and marked latest,
+before steps 6 and 8. The draft had been made a pre-release, which `/releases/latest` skips,
+so `install.sh` kept installing 0.1.0 until it was published this way. Afterwards the
+published `install.sh`, run into an empty home directory, installed `cloak 0.1.1
+(a3946ad...)`.
+
+Open: the localnet end-to-end run against the signed program (step 6) and the clean
+machines (step 8).
+
+## 17. A pool that could not be asked (2026-09-25)
+
+The first `cloak sync` from 0.1.1 on a new testnet wallet fetched its headers and was then
+refused at "catch-up": "the pool does not serve catch-up (... the frame was not stored:
+Exception: Failed to dial: Exception: No addresses found for peer: <the ricochet server>)".
+Two faults.
+
+**The transport forgot the server.** `sync` opens the transport before it starts the chain,
+and a first chain start is minutes of CDN and peers with the connection idle. dart_libp2p
+2.0.0 closes an idle connection about a minute after its last use and, although the server's
+address was added for an hour and the peer is protected, the address book no longer held it
+afterwards (probed against the pool's server: connected with one address at 60 s,
+disconnected with none at 90 s), so the next stream had nothing to dial. The address comes
+from `config.yaml` and is always right, so the transport gives it again before every
+stream. `localnet_transport_test` closes the connection and clears the address as libp2p
+does, and the next request is answered; without the fix it fails with the error above. Why
+dart_libp2p drops a protected peer's address is its own bug, not fixed here.
+
+**The refusal blamed the pool.** libcloak reports every transport failure at the step
+`transport`, and `sync` took that step as a pool that does not serve catch-up, sending a
+person to `--from-genesis`. That reading is right for silence from a pool that was asked
+and wrong for a frame the server never took. The transport now says when its last frame
+was not stored (`PoolMailbox.unreachable`), and `sync` then refuses at "transport": "the
+pool could not be asked: <why>. Nothing was learned about the pool; ...".

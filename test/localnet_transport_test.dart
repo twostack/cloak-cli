@@ -113,6 +113,33 @@ void main() async {
       expect(await second, [22]);
     });
 
+    test('A connection closed while idle, and its address forgotten, is dialled again', () async {
+      final t = await wallet();
+      addTearDown(t.close);
+      // what libp2p does to an idle connection a minute after its last use,
+      // as a command waits out a header download: closes it and forgets the
+      // server's address, so a redial found nothing to dial
+      await t.host.network.closePeer(t.server);
+      await t.host.peerStore.addrBook.clearAddrs(t.server);
+      expect(await t.host.peerStore.addrBook.addrs(t.server), isEmpty);
+
+      final answering = () async {
+        for (int i = 0; i < 50; i++) {
+          final got = await coordinator.drain();
+          if (got.isNotEmpty) {
+            await coordinator.delivered([for (final m in got) m.id]);
+            await coordinator.reply(got.single.sender, Uint8List.fromList([5]));
+            return;
+          }
+          await Future<void>.delayed(const Duration(milliseconds: 200));
+        }
+        fail('nothing arrived');
+      }();
+      expect(await t.request([4], timeout: const Duration(seconds: 5)), [5]);
+      await answering;
+      expect(t.unreachable, isNull, reason: 'the frame was stored');
+    });
+
     test('A hundred entries inside the bound', () async {
       final entries = [fp.pool.encode(), for (int i = 0; i < 100; i++) fp.ann1.encode()];
       final start = (await coordinator.feedLength()) + 1;

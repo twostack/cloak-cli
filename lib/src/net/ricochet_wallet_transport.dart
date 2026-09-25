@@ -72,6 +72,11 @@ abstract interface class PoolMailbox {
 
   /// Every notice waiting in this identity's notices folder, taken out of it.
   Future<List<List<int>>> readNotices();
+
+  /// Why the last frame could not be handed to the server, or null when the
+  /// last one was stored. A frame that never reached the server was never
+  /// put to the pool, so its missing answer says nothing about the pool.
+  String? get unreachable;
 }
 
 /// A frame whose declared length was over the bound for its kind.
@@ -131,6 +136,14 @@ class RicochetWalletTransport implements Transport, PoolMailbox {
 
   final BasicHost host;
   final PeerId server, coordinator;
+
+  /// The server's address, from the config. libp2p forgets it when an idle
+  /// connection is closed, a minute after the last use, and a redial then
+  /// finds no address at all; it is given again before every stream.
+  final MultiAddr serverAddr;
+
+  @override
+  String? unreachable;
   final PayloadEncryptor encryptor;
   final Duration timeout;
   final Zone _zone;
@@ -144,7 +157,8 @@ class RicochetWalletTransport implements Transport, PoolMailbox {
   /// What was discarded and why, for a person who asks.
   final List<String> discarded = [];
 
-  RicochetWalletTransport._(this.host, this.server, this.coordinator, this.encryptor, this.timeout, this._zone);
+  RicochetWalletTransport._(
+      this.host, this.server, this.serverAddr, this.coordinator, this.encryptor, this.timeout, this._zone);
 
   /// Connects to [server], a multiaddr ending in `/p2p/<peer id>`, as the
   /// identity [seed], to talk to the pool whose coordinator is [coordinator].
@@ -200,7 +214,7 @@ class RicochetWalletTransport implements Transport, PoolMailbox {
     }
     host.connManager.protect(serverId, 'cloak-pool-server');
     return RicochetWalletTransport._(
-        host, serverId, coordinatorId, PayloadEncryptor.fromEd25519Seed(seed), timeout, zone);
+        host, serverId, addr, coordinatorId, PayloadEncryptor.fromEd25519Seed(seed), timeout, zone);
   }
 
   static Future<BasicHost> _createHost(KeyPair keyPair) async {
@@ -236,6 +250,7 @@ class RicochetWalletTransport implements Transport, PoolMailbox {
   }
 
   Future<T> _stream<T>(String protocol, Future<T> Function(P2PStream s) fn) async {
+    await host.peerStore.addrBook.addAddr(server, serverAddr, const Duration(hours: 1));
     final stream = await host.newStream(server, [protocol], core_context.Context()).timeout(timeout);
     try {
       return await fn(stream).timeout(timeout * 2);
@@ -286,9 +301,14 @@ class RicochetWalletTransport implements Transport, PoolMailbox {
               messageId: messageId,
               flags: SFMessageFlags.none.withFlag(SFMessageFlags.encrypted)));
     } catch (e) {
-      throw TransportFailure('request', 'the frame was not stored: $e');
+      unreachable = 'the frame was not stored: $e';
+      throw TransportFailure('request', unreachable!);
     }
-    if (!ack.success) throw TransportFailure('request', 'the server did not store the frame: ${ack.errorMessage}');
+    if (!ack.success) {
+      unreachable = 'the server did not store the frame: ${ack.errorMessage}';
+      throw TransportFailure('request', unreachable!);
+    }
+    unreachable = null;
   }
 
   @override

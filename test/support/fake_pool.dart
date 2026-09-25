@@ -15,6 +15,9 @@ class FakePoolTransport extends FakeTransport implements PoolMailbox {
   final List<List<int>> notices = [];
   final List<List<int>> lateReplies = [];
 
+  @override
+  String? unreachable;
+
   FakePoolTransport({super.feed});
 
   @override
@@ -150,6 +153,8 @@ class FakePool {
   /// [head] (the last round by default) and the block roots in [roots]. With
   /// [catchUp] false it answers them with nothing at all, as
   /// `../pool-coordinator` does today; [answer] overrides any one reply.
+  /// With [undelivered] the catch-up frames never reach the server, for that
+  /// reason, as when the server cannot be dialled.
   FakePoolTransport transport({
     int rounds = 2,
     int acceptInto = 3,
@@ -158,6 +163,7 @@ class FakePool {
     int? head,
     Map<int, List<int>>? roots,
     PoolCatchUpReply? Function(PoolCatchUpRequest request)? answer,
+    String? undelivered,
   }) {
     final t = FakePoolTransport(feed: feed ??
         [
@@ -178,6 +184,10 @@ class FakePool {
       final msg = PoolMessage.decode(frame);
       if (msg is PoolSubmission) return PoolReply.accepted(msg.id, acceptInto).encode();
       if (msg is PoolCatchUpRequest) {
+        if (undelivered != null) {
+          t.unreachable = undelivered;
+          throw TransportFailure('request', undelivered);
+        }
         if (!catchUp) throw const TransportFailure('request', 'no reply arrived before the deadline');
         final special = answer?.call(msg);
         if (special != null) return special.encode();

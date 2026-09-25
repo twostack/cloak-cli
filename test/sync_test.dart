@@ -101,6 +101,19 @@ void main() {
       expect(File(h.dir.poolView).existsSync(), isFalse);
     });
 
+    test('A pool that could not be asked is not said to refuse catch-up', () async {
+      const why = 'the frame was not stored: Exception: Failed to dial: Exception: No addresses found for peer';
+      final t = fp.transport(undelivered: why);
+      final ran = await sync(t);
+      expect(ran.code, Exit.refused, reason: '$ran');
+      expect(ran.err, contains('refused at "transport"'));
+      expect(ran.err, contains('the pool could not be asked: $why'));
+      expect(ran.err, contains('round 0'));
+      expect(ran.err, isNot(contains('does not serve catch-up')));
+      expect(ran.err, isNot(contains('--from-genesis')));
+      expect(File(h.dir.poolView).existsSync(), isFalse);
+    });
+
     test('--from-genesis folds the whole feed when a person asks for it', () async {
       final t = fp.transport(catchUp: false);
       final ran = await sync(t, ['--from-genesis']);

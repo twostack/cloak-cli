@@ -95,7 +95,7 @@ Future<void> runSync(Call call) async {
     // the feed no longer reaches this view's next round: catch up by the
     // pool's published runs, which folds every round and so brings a held
     // note's path forward with it
-    await _bringForward(client, view, checker, startRound);
+    await _bringForward(s, client, view, checker, startRound);
   } else {
     try {
       await _check(s, client, view, checker, startRound, changed: () => _changed(view, stored, firstDescriptor));
@@ -175,7 +175,7 @@ Future<void> _check(Session s, CoordinatorClient client, PoolView view, PaymentC
         'round proved off the chain agrees with it');
   }
   if (head.round > view.round) {
-    await _bringForward(client, view, checker, startRound);
+    await _bringForward(s, client, view, checker, startRound);
     return;
   }
   if (head.round < view.round) {
@@ -227,7 +227,8 @@ Future<PoolView> _firstView(Call call, Session s, CoordinatorClient client) asyn
   final checker = PaymentChecker(pool: client.pool, headers: await s.headerChecker());
   final (view, why) = await client.current(checker);
   if (view == null) {
-    if (why!.step == 'transport' || why.step == 'notServed') {
+    await _refuseUndelivered(s, why!, 'this wallet stands at round 0 and no pool view was written');
+    if (why.step == 'transport' || why.step == 'notServed') {
       throw Refusal('catch-up',
           'the pool does not serve catch-up (${why.reason}); this wallet stands at round 0. Run cloak sync '
           '--from-genesis to fold the pool\'s whole feed instead');
@@ -237,15 +238,28 @@ Future<PoolView> _firstView(Call call, Session s, CoordinatorClient client) asyn
   return view;
 }
 
+/// Refuses [why] as the pool going unasked when the transport could not
+/// deliver the frame that asked it. Silence from a pool that was asked is its
+/// answer; a frame the server never took is not, and saying the pool does not
+/// serve catch-up then sends a person to fold its whole feed for nothing.
+Future<void> _refuseUndelivered(Session s, Refusal why, String where) async {
+  if (why.step != 'transport') return;
+  final unreachable = (await s.mailbox())?.unreachable;
+  if (unreachable == null) return;
+  throw Refusal('transport',
+      'the pool could not be asked: $unreachable. Nothing was learned about the pool; $where. Run cloak sync again');
+}
+
 /// The round an out-of-order refusal says the feed jumped to, or -1.
 int _announcedFrom(Refusal r) {
   final m = RegExp(r'this one is for round (\d+)').firstMatch(r.reason);
   return m == null ? -1 : int.parse(m.group(1)!);
 }
 
-Future<void> _bringForward(CoordinatorClient client, PoolView view, PaymentChecker checker, int startRound) async {
+Future<void> _bringForward(Session s, CoordinatorClient client, PoolView view, PaymentChecker checker, int startRound) async {
   final why = await client.bringForward(view, checker);
   if (why == null) return;
+  await _refuseUndelivered(s, why, 'this wallet stands at round $startRound');
   if (why.step == 'transport' || why.step == 'notServed') {
     throw Refusal('catch-up',
         'the pool\'s feed does not reach round ${startRound + 1} and the pool does not serve catch-up '
