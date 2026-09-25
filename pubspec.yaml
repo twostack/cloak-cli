@@ -1,6 +1,6 @@
 name: cloak_cli
 description: "A command-line wallet for the TSL1_SP shielded pool: receive BSV, deposit it, pay people, and prove you did."
-version: 0.1.0
+version: 0.1.1
 publish_to: none
 
 environment:
