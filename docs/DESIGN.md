@@ -771,3 +771,22 @@ A wallet that received before amounts were recorded has a sealed store (`keys.en
 amount. Its first balance opens the transparent side offline, from its store, with no peer
 dialled and no tip waited for, which asks for the passphrase once and records the amount.
 libspiffy loads its wallets before it starts P2P, so an offline start answers a balance.
+
+## 24. v0.1.4 built (2026-09-26)
+
+Sections 22 and 23, released by `docs/RELEASING.md`. `ci` failed once on the version commit
+`24dc4a9`: on Linux the mutated-BEEF test passed its five minutes once every payment it took
+wrote the state file. `receive` now writes only when the transparent amount moved, and that
+test's transparent side keeps no coins (`337332c`), which is green on both runners.
+
+`v0.1.4` (annotated) on `337332c`. Release run `36173772551` passed:
+`cloak-0.1.4-linux-amd64.tar.gz` 8,102,541 bytes, `cloak-0.1.4-linux-arm64.tar.gz`
+7,860,796 bytes, both attested. `tool/release/macos.sh` from a clean worktree at `../c014`:
+suite 180 passed, 14 skipped; notarization `Accepted` (submission
+`5219499a-e5e2-4100-b2d1-3be9419c8d89`); `cloak-0.1.4-macos-arm64.dmg` 9,615,212 bytes,
+`Notarized Developer ID`; the quarantined program printed `cloak 0.1.4 (337332c...)`. All
+three files check against `SHA256SUMS` as downloaded. Published as a full release and marked
+latest; `install.sh` into an empty home directory installed `cloak 0.1.4`.
+
+Open, as before: the localnet end-to-end run against the signed program (step 6) and the
+clean machines (step 8).
