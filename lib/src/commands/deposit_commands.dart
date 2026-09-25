@@ -122,8 +122,9 @@ Future<void> runReceive(Call call) async {
   } else {
     r.quiet('waitingFor', null);
   }
-  // for cloak balance, which reads what the transparent side holds from here
-  await s.save(view: false, store: false);
+  // for cloak balance, which reads what the transparent side holds from here;
+  // a payment taken before, or one parked, moves nothing
+  if (await t.spendable() != s.state.transparentSats) await s.save(view: false, store: false);
 }
 
 /// The bytes of a BEEF payment handed over as hex: [given] is a file holding

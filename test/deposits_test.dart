@@ -554,7 +554,7 @@ void main() {
 
     test('Mutated BEEF never crashes the wallet', () async {
       final h = await payer();
-      h.ports.transparentSide = FakeTransparentSide();
+      h.ports.transparentSide = FakeTransparentSide()..keepsReceived = false;
       final valid = beefAt(5);
       final rng = Random(31);
       final steps = <String>{};

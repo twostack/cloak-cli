@@ -35,6 +35,10 @@ class FakeTransparentSide implements TransparentSide {
   bool parkReceives = false;
   String? refuseReceives;
 
+  /// Whether a payment taken becomes a coin. Off for a test about reading
+  /// BEEF, where every payment taken would otherwise be a state file written.
+  bool keepsReceived = true;
+
   FakeTransparentSide({int seed = 1, List<(String, int)>? coins})
       : _r = Random(seed),
         coins = coins ?? [('aa' * 32, 100000), ('bb' * 32, 100000), ('cc' * 32, 100000)];
@@ -45,7 +49,10 @@ class FakeTransparentSide implements TransparentSide {
     final b = BEEF.parse(Uint8List.fromList(beef));
     final tx = Transaction.fromHex(hex.encode(b.txs.last));
     if (refuseReceives != null) throw Refusal('BEEF', refuseReceives!);
-    if (!parkReceives) coins.add((tx.id, 1234));
+    // as libspiffy, a payment taken twice is one payment; a txid is hashed
+    // afresh on every read, so it is read once
+    final id = tx.id;
+    if (keepsReceived && !parkReceives && !coins.any((c) => c.$1 == id)) coins.add((id, 1234));
     return ReceiveOutcome(tx.id, 1234, waitingFor: parkReceives ? -1 : null);
   }
 
