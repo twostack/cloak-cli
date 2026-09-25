@@ -591,3 +591,35 @@ P2P could not connect to its one default seed (`testnet-seed.bitcoinsv.io:18333`
 `seed.bitcoinsv.io:8333`), although both accept TCP. That failure is libspiffy's and was
 there before this change. A refused start does not mark the store; the next start finds no
 chunks left to fetch and marks it.
+
+## 15. Peers from every seed address, and the tip they agree on (2026-09-25)
+
+The refused starts of section 14 were libspiffy's. It dialled a DNS seed as one `host:port`,
+reaching whichever address the resolver listed first, and on 2026-09-25 two of
+`testnet-seed.bitcoinsv.io`'s four nodes accepted a connection and never answered a version
+handshake. Probed by hand, the seeds bitcoin-sv ships answered as follows: testnet
+`testnet-seed.bitcoinsv.io` 2 of 4, `testnet-seed.bitcoinseed.directory` 0 of 2,
+`testnet-seed.bitcoincloud.net` no records; mainnet `seed.bitcoinsv.io` 2 of 3,
+`seed.satoshisvision.network` 1 of 2 (stuck at height 413,551), `seed.bitcoinseed.directory`
+0 of 6. TAAL publishes no seed. GorillaPool's `testnet.gorillapool.io` and
+`seed.gorillapool.io` are testnet nodes; `testnet-seed.gorillapool.io` resolves to private
+addresses.
+
+libspiffy 3.0.1, taken on the person's decision to fix it there and publish: every address
+of every seed is dialled, the start goes on at the first that answers, the error names each
+address and why, the seeds are the node's own plus GorillaPool's testnet nodes, and header
+sync asks the peer that reported the highest height. A warm testnet start went from 19 s
+(every dial waited out) to 4 s under `dart run`, of which P2P is about 0.5 s.
+
+**The wait for the tip.** A chain start answered once its store had not moved for 750 ms.
+After a CDN seed that is before the first peer's headers arrive, so the first live testnet
+run answered at the CDN's 1,719,437 while the network was at 1,759,882, and a command would
+have taken 40,000 blocks of history as the tip. The start now also waits while the store is
+below the height its peers agreed on in their handshakes (`spiffyNodeBridge.currentHeight`),
+within the same 60 s bound. From an empty store, testnet answered at 1,759,883 after 137 s:
+the CDN, then the rest from peers.
+
+**Found in spiffynode 1.1.0, not fixed:** a message with no payload is completed only when
+more bytes follow it (`processData` loops while its buffer is non-empty), so a peer that
+ended its handshake with a bare `verack` would time out. Real nodes send more after it; the
+loopback test node in libspiffy sends a `ping`.

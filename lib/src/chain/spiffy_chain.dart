@@ -116,7 +116,7 @@ class SpiffyChain {
     await File(p.join(dir.chain, networkFile)).writeAsString(config.network.name);
     final chain = system.headerChain;
     await seed?.finish(dir, chain.bestHeight);
-    await _waitForSettle(chain, progress);
+    await _waitForSettle(chain, progress, networkHeight: () => system.spiffyNodeBridge?.currentHeight ?? 0);
     return SpiffyChain._(SpiffyHeaderSource(chain), system, arc, sealed != null);
   }
 
@@ -168,20 +168,27 @@ class SpiffyChain {
   /// grows, so a command catching up does not look like one that has hung.
   ///
   /// A store already at the tip does not grow, and a command over it answers
-  /// at once: the wait is only as long as headers keep arriving.
-  static Future<void> _waitForSettle(BlockHeaderChain chain, StringSink? progress) async {
+  /// at once: the wait is only as long as headers keep arriving, or while the
+  /// store is below [networkHeight], the height its peers agree on in their
+  /// handshakes (0 when there are none). Quiet alone is not enough: a store
+  /// just seeded from a CDN is still for the second or so before the first
+  /// peer's headers arrive, and a command answered then answers from the
+  /// CDN's tip.
+  static Future<void> _waitForSettle(BlockHeaderChain chain, StringSink? progress,
+      {int Function()? networkHeight}) async {
     final start = DateTime.now();
     var last = chain.bestHeight, still = DateTime.now();
     var moved = false;
     while (DateTime.now().difference(start) < maxWait) {
       await Future<void>.delayed(const Duration(milliseconds: 250));
       final h = chain.bestHeight;
+      final network = networkHeight?.call() ?? 0;
       if (h != last) {
-        progress?.writeln('cloak: chain: at height $h');
+        progress?.writeln('cloak: chain: at height $h${network > h ? ' of $network' : ''}');
         last = h;
         still = DateTime.now();
         moved = true;
-      } else if (DateTime.now().difference(still) >= (moved ? settle : quiet)) {
+      } else if (h >= network && DateTime.now().difference(still) >= (moved ? settle : quiet)) {
         return;
       }
     }

@@ -485,10 +485,10 @@ packages:
     dependency: "direct main"
     description:
       name: libspiffy
-      sha256: "5640ad8cee090941a40cadbc681e3f440a73f6e9b35f56965ed539ed21b2f10f"
+      sha256: d42b2e5aa81544ae4cb8a5afaef792308da54e6851c6964f66008a142f857047
       url: "https://pub.dev"
     source: hosted
-    version: "3.0.0"
+    version: "3.0.1"
   lints:
     dependency: "direct dev"
     description:

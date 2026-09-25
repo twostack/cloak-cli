@@ -19,7 +19,7 @@ dependencies:
   # builders, the parameter plans
   tstokenlib: ^2.1.0
   # the transparent side: BEEF in, UTXOs, signing, broadcast, the header chain
-  libspiffy: ^3.0.0
+  libspiffy: ^3.0.1
   # the pipe to the coordinator
   ricochet: ^0.1.0
   dart_libp2p: ^2.0.0
