@@ -697,3 +697,32 @@ an empty home directory installed `cloak 0.1.2`.
 
 Open, as for 0.1.1: the localnet end-to-end run against the signed program (step 6) and the
 clean machines (step 8).
+
+## 19. BEEF is handed over as hex (2026-09-25)
+
+`cloak receive` read its file as raw BEEF bytes. Nobody has those: a wallet, an explorer or
+ARC hands BEEF over as hex, and the first person to receive a payment pasted the hex into a
+file and was refused at "Invalid BEEF version: expected 100beef, got 30313030", the
+characters `0100` read as bytes. Converting the file with `xxd -r -p` was the only way in,
+and that is not a step to ask of anyone. The person's call: hex only, typed on the command
+line or in a file. `cloak receive <arg>` reads the file when `arg` names one, and otherwise
+takes `arg` as the hex; spaces and line breaks are ignored, either case of digit is taken,
+and a file that is not hex (raw bytes included) is refused naming the first character that
+is not a hex digit. A file is bounded before it is read by twice the pool's per-transaction
+bound plus room for line breaks, and the hex by the same bound once its spaces are gone.
+
+## 20. BEEF by txid (2026-09-25)
+
+`cloak receive --txid <txid>` asks a BEEF service (`beef.url`, default
+`https://beef.xn--nda.network`, which answers `{"beef": "<hex>"}` for mainnet and testnet
+alike, or `{"error": ...}`) for one transaction's BEEF. The answer is bounded by the largest
+BEEF taken, must hold the transaction asked for, and is then the same hex path as a pasted
+BEEF: shape, then its merkle proof against this wallet's own headers. A plaintext URL is
+refused except on this machine, where the tests serve one.
+
+**The rule this does not break.** README rule 1 had said `cloak` never asks the network about
+a transaction of yours, and that was read as ruling this out. The rule is libspiffy's
+(`spv-understanding.md`): the wallet does not manufacture state it cannot evidence. It does
+not monitor addresses or scan blocks, does not follow transactions it is not a party to, and
+takes no proof on a service's word. Fetching, at the person's request, evidence that is then
+checked against the wallet's own headers is none of those. Rule 1 now says what the rule is.

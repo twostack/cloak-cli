@@ -368,7 +368,7 @@ void main() {
       h.ports
         ..transparentSide = spiffy
         ..headerSource = headers;
-      File('${h.root.path}/beef').writeAsBytesSync(beefAt(5000));
+      File('${h.root.path}/beef').writeAsStringSync(hex.encode(beefAt(5000)));
       headers.calls.clear();
       final ran = await h.run(['receive', '${h.root.path}/beef', '--json']);
       expect(ran.code, Exit.done, reason: '$ran');
@@ -379,11 +379,141 @@ void main() {
     test('A payment with a bad merkle proof', () async {
       final h = await payer();
       h.ports.transparentSide = FakeTransparentSide()..refuseReceives = 'the merkle proof does not reach the header at height 5';
-      File('${h.root.path}/beef').writeAsBytesSync(beefAt(5));
+      File('${h.root.path}/beef').writeAsStringSync(hex.encode(beefAt(5)));
       final ran = await h.run(['receive', '${h.root.path}/beef']);
       expect(ran.code, Exit.refused);
       expect(ran.err, contains('refused at "BEEF"'));
       expect(ran.err, contains('merkle proof'));
+    });
+
+    test('The hex typed on the command line', () async {
+      final h = await payer();
+      final spiffy = FakeTransparentSide();
+      h.ports.transparentSide = spiffy;
+      final ran = await h.run(['receive', hex.encode(beefAt(5)), '--json']);
+      expect(ran.code, Exit.done, reason: '$ran');
+      expect(spiffy.calls, contains('receive'));
+    });
+
+    test('A file of pasted hex, line breaks and all', () async {
+      final h = await payer();
+      h.ports.transparentSide = FakeTransparentSide();
+      final text = hex.encode(beefAt(5)).toUpperCase();
+      final lines = [for (int i = 0; i < text.length; i += 64) text.substring(i, min(i + 64, text.length))];
+      File('${h.root.path}/payment.txt').writeAsStringSync('${lines.join('\r\n')}\n');
+      final ran = await h.run(['receive', '${h.root.path}/payment.txt']);
+      expect(ran.code, Exit.done, reason: '$ran');
+    });
+
+    test('A file that is not hex is refused, naming where', () async {
+      final h = await payer();
+      h.ports.transparentSide = FakeTransparentSide();
+      File('${h.root.path}/payment.beef').writeAsBytesSync(beefAt(5));
+      final ran = await h.run(['receive', '${h.root.path}/payment.beef']);
+      expect(ran.code, Exit.refused, reason: '$ran');
+      expect(ran.err, contains('refused at "BEEF"'));
+      expect(ran.err, contains('is not BEEF hex: it has a byte 0x01 at character 1'));
+    });
+
+    group('by txid, from a BEEF service', () {
+      late HttpServer service;
+      final answers = <String, (int, Object)>{};
+      final asked = <String>[];
+      setUpAll(() async {
+        service = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+        service.listen((q) {
+          final txid = q.uri.pathSegments.last;
+          asked.add(txid);
+          final (status, body) = answers[txid] ?? (400, {'error': 'no raw tx associated with that txid', 'txid': txid});
+          q.response
+            ..statusCode = status
+            ..headers.contentType = ContentType.json
+            ..write(body is String ? body : jsonEncode(body))
+            ..close();
+        });
+      });
+      tearDownAll(() => service.close(force: true));
+      setUp(asked.clear);
+
+      Future<Harness> served() async {
+        final h = await payer();
+        h.ports.transparentSide = FakeTransparentSide();
+        final config = File(h.dir.config);
+        config.writeAsStringSync(config
+            .readAsStringSync()
+            .replaceFirst('  url: ${CloakConfig.defaultBeefService}', '  url: http://127.0.0.1:${service.port}/'));
+        return h;
+      }
+
+      test('The BEEF is asked for by its txid, and checked like any other', () async {
+        final h = await served();
+        answers[fp.c.w1.id] = (200, {'beef': hex.encode(beefAt(5))});
+        final ran = await h.run(['receive', '--txid', fp.c.w1.id.toUpperCase()]);
+        expect(ran.code, Exit.done, reason: '$ran');
+        expect(asked, [fp.c.w1.id], reason: 'asked once, about that transaction and nothing else');
+        expect(ran.out, contains('the BEEF came from http://127.0.0.1:${service.port}/'));
+        expect((h.ports.transparentSide as FakeTransparentSide).calls, contains('receive'));
+      });
+
+      test('A service that has no BEEF for it says why', () async {
+        final h = await served();
+        final ran = await h.run(['receive', '--txid', '00' * 32]);
+        expect(ran.code, Exit.refused, reason: '$ran');
+        expect(ran.err, contains('refused at "BEEF service"'));
+        expect(ran.err, contains('answered HTTP 400: '));
+        expect(ran.err, contains('no raw tx associated with that txid'));
+      });
+
+      test('A BEEF for another transaction is refused', () async {
+        final h = await served();
+        answers['11' * 32] = (200, {'beef': hex.encode(beefAt(5))});
+        final ran = await h.run(['receive', '--txid', '11' * 32]);
+        expect(ran.code, Exit.refused, reason: '$ran');
+        expect(ran.err, contains('does not hold that transaction'));
+        expect((h.ports.transparentSide as FakeTransparentSide).calls, isNot(contains('receive')));
+      });
+
+      test('An answer that is not BEEF hex, or not JSON', () async {
+        final h = await served();
+        answers['22' * 32] = (200, {'beef': 'not hex at all'});
+        answers['33' * 32] = (200, '<html>a page</html>');
+        final notHex = await h.run(['receive', '--txid', '22' * 32]);
+        expect(notHex.err, contains('is not BEEF hex'));
+        final notJson = await h.run(['receive', '--txid', '33' * 32]);
+        expect(notJson.err, contains('no JSON'));
+      });
+
+      test('A txid and the BEEF both, or a txid that is not one', () async {
+        final h = await served();
+        expect((await h.run(['receive', hex.encode(beefAt(5)), '--txid', fp.c.w1.id])).code, Exit.usage);
+        final ran = await h.run(['receive', '--txid', 'abc']);
+        expect(ran.code, Exit.refused);
+        expect(ran.err, contains('is not a txid'));
+        expect(asked, isEmpty, reason: 'nothing is asked about a malformed txid');
+      });
+
+      test('A plaintext service is refused, unless it is on this machine', () async {
+        final h = await served();
+        final config = File(h.dir.config);
+        config.writeAsStringSync(
+            config.readAsStringSync().replaceFirst(RegExp(r'  url: http://127\.0\.0\.1:\d+/'), '  url: http://beef.example'));
+        final ran = await h.run(['receive', '--txid', fp.c.w1.id]);
+        expect(ran.code, Exit.refused);
+        expect(ran.err, contains('beef.url as http://beef.example'));
+      });
+    });
+
+    test('Neither a file nor hex', () async {
+      final h = await payer();
+      h.ports.transparentSide = FakeTransparentSide();
+      for (final (given, says) in [
+        ('payment.beef', 'there is no file named "payment.beef", and it is not BEEF hex either'),
+        ('${hex.encode(beefAt(5))}0', 'odd number of hex digits'),
+      ]) {
+        final ran = await h.run(['receive', given]);
+        expect(ran.code, Exit.refused, reason: '$ran');
+        expect(ran.err, contains(says), reason: given);
+      }
     });
 
     test('Mutated BEEF never crashes the wallet', () async {
@@ -397,7 +527,7 @@ void main() {
         final bent = rng.nextBool()
             ? ([...valid]..[rng.nextInt(valid.length)] = rng.nextInt(256))
             : valid.sublist(0, rng.nextInt(valid.length));
-        File('${h.root.path}/beef').writeAsBytesSync(bent);
+        File('${h.root.path}/beef').writeAsStringSync(hex.encode(bent));
         final ran = await h.run(['receive', '${h.root.path}/beef']);
         expect(ran.code, lessThanOrEqualTo(Exit.refused), reason: '$ran');
         expect(ran.err, isNot(contains('refused at "unexpected"')), reason: '$ran');

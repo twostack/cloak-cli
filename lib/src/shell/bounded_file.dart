@@ -14,9 +14,11 @@ enum MessageKind {
   paymentProof('payment proof', PaymentProof.maxProof),
   acknowledgement('acknowledgement', Acknowledgement.encodedSize),
 
-  /// A BEEF payment: at most one transaction the chain would carry, which
-  /// is the pool protocol's own per-transaction bound.
-  beef('BEEF payment', PoolMessage.maxTx);
+  /// A BEEF payment, as hex, the way wallets and explorers hand one over: at
+  /// most one transaction the chain would carry (the pool protocol's own
+  /// per-transaction bound), two characters a byte, with room for the line
+  /// breaks a pasted file picks up.
+  beef('BEEF payment', 2 * PoolMessage.maxTx + 64 * 1024);
 
   final String name;
   final int max;

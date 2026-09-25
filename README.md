@@ -65,9 +65,10 @@ Two rules shape everything `cloak` does:
 
 1. **People pay people, and hand each other the paperwork.** An invoice, a payment proof and
    an acknowledgement are files. You send them to the other person over whatever channel you
-   already share: email, a chat, a USB stick. `cloak` never looks anything up on the chain on
-   your behalf, and never asks the network about an address, a transaction or an output of
-   yours. That is what keeps your payments private.
+   already share: email, a chat, a USB stick. `cloak` never watches addresses or scans the
+   chain for your payments, and never takes anyone's word for one: whatever reaches it, from
+   the person who paid you or from a service you asked (`cloak receive --txid`), is checked
+   against the block headers your wallet follows itself.
 2. **Nothing is taken on trust.** Your wallet follows the chain's block headers itself.
    Everything the coordinator says is checked against a round your wallet proved from those
    headers, so a coordinator that lies is refused, not followed.
@@ -206,11 +207,20 @@ that is still young; later syncs are just `cloak sync`.
 cloak address --transparent
 ```
 
-The person paying you hands you the payment as a BEEF file (the transaction with its merkle
-proof). Take it in:
+The person paying you hands you the payment as BEEF: the transaction with its merkle proof,
+as the hex a wallet or an explorer gives you. Paste it straight in, or save it in a file
+first:
 
 ```
-cloak receive payment.beef
+cloak receive 0100beef01fe92da1a00...
+cloak receive payment.txt
+```
+
+If all you have is the payment's txid, `cloak` can ask a BEEF service for it, and checks
+what comes back just the same:
+
+```
+cloak receive --txid 796acd4c642e317c65e6b5db897544597849f709caf195a92508e373d502b403
 ```
 
 `cloak` checks the merkle proof against your own headers. If the payment's block is newer
@@ -359,7 +369,7 @@ afterwards.
 | `cloak balance` | spendable, reserved and stale, per asset, never added up |
 | `cloak notes` | every note held, its leaf, round, value and state |
 | `cloak journal` | the record of what was issued, paid, proved and acknowledged; `--invoice <id>` for one thread |
-| `cloak receive` | takes a BEEF payment another person handed you |
+| `cloak receive` | takes a BEEF payment handed to you as hex, or asks for it by `--txid` |
 | `cloak deposit` | puts BSV into the pool behind the deposit covenant |
 | `cloak refund` | takes back a deposit no round took in, at its refund height |
 | `cloak withdraw` | takes BSV out of the pool to a transparent address |
@@ -502,12 +512,19 @@ checked, acknowledged. `--invoice` shows one thread.
 
 ### receive
 
-`cloak receive <BEEF file>`
+`cloak receive <BEEF hex, or a file holding it>`
+`cloak receive --txid <txid>`
 
-Takes a BEEF payment to one of your transparent addresses. The file is checked for shape
+Takes a BEEF payment to one of your transparent addresses. Give the hex itself, or the name
+of a file it was saved in; spaces and line breaks in it are ignored. It is checked for shape
 before anything else sees it, then its merkle proof is checked against your headers. A
 payment whose block your chain has not reached is parked, and the height it waits for is
 printed.
+
+With `--txid`, `cloak` asks the BEEF service named by `beef.url` in `config.yaml` for that
+transaction's BEEF, over https, and asks nothing else. The answer must hold that very
+transaction, and is then checked like any BEEF you give it. The default service,
+`https://beef.xn--nda.network`, answers for mainnet and testnet alike.
 
 ### deposit
 
@@ -558,6 +575,8 @@ deposit:
   refund_minimum: 100         # the fewest blocks ahead it may open at
 arc:
   url: ~                      # the ARC broadcast service; empty uses TAAL's for the network
+beef:
+  url: https://beef.xn--nda.network   # asked for a transaction's BEEF by cloak receive --txid, and only then
 ```
 
 **Environment variables:**
@@ -637,7 +656,8 @@ The step named in the refusal tells you where to look. The common ones:
 | `transport`, `no answer` | the ricochet server or the coordinator did not answer; check `pool.server` and try again |
 | `refund height` | a refund opens too soon (deposit) or has not opened yet (refund); the block is named |
 | `confirmation` | a deposit or withdrawal was not confirmed; nothing was done |
-| `BEEF` | a received payment file is not a well-formed BEEF |
+| `BEEF` | a received payment is not BEEF hex, or not a well-formed BEEF, or not the transaction asked for |
+| `BEEF service`, `txid` | `cloak receive --txid` could not get the BEEF: the service's answer or error is quoted, or the txid is not 64 hex digits |
 | `transparent side`, `funding`, `broadcast` | the transparent wallet or ARC could not do what was asked; the message is theirs |
 | `network` | the chain data in the wallet was built for another network than `config.yaml` names |
 | `native library` | a library that came with `cloak` is missing, damaged or of another version, and the file is named; reinstall, or fix `STARK_KERNELS_LIB` if you set it |

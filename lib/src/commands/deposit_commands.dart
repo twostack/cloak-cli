@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:math';
 import 'dart:typed_data';
 
@@ -8,6 +9,7 @@ import 'package:libcloak/libcloak.dart';
 import 'package:libspiffy/libspiffy.dart' show BEEF, BEEFException;
 import 'package:tstokenlib/tstokenlib.dart';
 
+import '../net/beef_service.dart';
 import '../shell/bounded_file.dart';
 import '../shell/call.dart';
 import '../wallet/session.dart';
@@ -78,10 +80,31 @@ List<int> pp3Outpoint(List<int> roundTxId) =>
 /// checks its merkle proof against this wallet's own headers, and parks a
 /// payment whose block the chain has not reached, naming the height it waits
 /// for; nothing asks for that block.
+void receiveOptions(ArgParser p) => p.addOption('txid',
+    valueHelp: 'txid',
+    help: 'ask the BEEF service (beef.url in config.yaml) for this transaction\'s BEEF, instead of giving it');
+
 Future<void> runReceive(Call call) async {
-  final path = call.positional(0, 'the BEEF payment file');
-  final bytes = await BoundedFile.read(path, MessageKind.beef);
-  final beef = readBeef(bytes);
+  final txid = call.option('txid');
+  if (txid != null && call.args.rest.isNotEmpty) {
+    throw UsageError('cloak receive takes the BEEF or --txid, not both');
+  }
+  final List<int> bytes;
+  final BEEF beef;
+  if (txid != null) {
+    final config = await call.config();
+    final service = BeefService(config.beefUrl, timeout: config.timeout, maxAnswer: MessageKind.beef.max + 1024);
+    final given = await service.fetch(txid);
+    bytes = _decodeBeefHex(given, 'the BEEF ${config.beefUrl} gave for $txid');
+    beef = readBeef(bytes);
+    if (!beefHolds(beef, txid)) {
+      throw Refusal('BEEF', '${config.beefUrl} answered $txid with a BEEF that does not hold that transaction');
+    }
+    call.report.say('the BEEF came from ${config.beefUrl}');
+  } else {
+    bytes = await readBeefHex(call.positional(0, 'the BEEF payment, as hex or a file holding its hex, or --txid'));
+    beef = readBeef(bytes);
+  }
   final s = await call.open(write: true, keys: true);
   final t = await s.transparent();
   final tip = (await (await s.headers()).tip()).height;
@@ -99,6 +122,64 @@ Future<void> runReceive(Call call) async {
   } else {
     r.quiet('waitingFor', null);
   }
+}
+
+/// The bytes of a BEEF payment handed over as hex: [given] is a file holding
+/// the hex, or else the hex itself, typed or pasted on the command line.
+///
+/// Hex is how a payment is handed over: explorers, wallets and ARC give BEEF
+/// as hex, and nobody has its raw bytes to hand. Whitespace is ignored, since
+/// pasted hex picks up line breaks.
+Future<List<int>> readBeefHex(String given) async {
+  final bool isFile;
+  try {
+    isFile = FileSystemEntity.isFileSync(given);
+  } on FileSystemException {
+    // a string too long to be a path is not one
+    return _decodeBeefHex(given, 'the BEEF given');
+  }
+  if (isFile) {
+    final text = await BoundedFile.read(given, MessageKind.beef);
+    return _decodeBeefHex(String.fromCharCodes(text), given);
+  }
+  if (!_hexOnly.hasMatch(given.replaceAll(_space, ''))) {
+    throw Refusal('BEEF',
+        'there is no file named ${_shown(given)}, and it is not BEEF hex either; give the payment\'s hex, or a '
+        'file holding it');
+  }
+  return _decodeBeefHex(given, 'the BEEF given');
+}
+
+final _space = RegExp(r'\s');
+final _hexOnly = RegExp(r'^[0-9a-fA-F]+$');
+
+List<int> _decodeBeefHex(String text, String what) {
+  final h = text.replaceAll(_space, '');
+  if (h.isEmpty) throw Refusal('BEEF', '$what is empty; a BEEF payment is given as hex');
+  final bad = RegExp(r'[^0-9a-fA-F]').firstMatch(h);
+  if (bad != null) {
+    throw Refusal('BEEF',
+        '$what is not BEEF hex: it has ${_describe(bad.group(0)!)} at character ${bad.start + 1}. A BEEF payment is '
+        'given as hex, the way a wallet or an explorer hands it over');
+  }
+  if (h.length.isOdd) throw Refusal('BEEF', '$what has an odd number of hex digits (${h.length}), so a digit is missing');
+  if (h.length ~/ 2 > PoolMessage.maxTx) {
+    throw Refusal('size', 'a BEEF payment is at most ${PoolMessage.maxTx} bytes and $what is ${h.length ~/ 2}');
+  }
+  return hex.decode(h);
+}
+
+String _describe(String c) {
+  final code = c.codeUnitAt(0);
+  return code >= 0x20 && code < 0x7f ? '"$c"' : 'a byte 0x${code.toRadixString(16).padLeft(2, '0')}';
+}
+
+String _shown(String s) => s.length <= 40 ? '"$s"' : '"${s.substring(0, 32)}..." (${s.length} characters)';
+
+/// Whether one of [beef]'s transactions is [txid].
+bool beefHolds(BEEF beef, String txid) {
+  final want = txid.toLowerCase();
+  return beef.txs.any((raw) => Transaction.fromHex(hex.encode(raw)).id == want);
 }
 
 /// A BEEF payment's structure, or a refusal naming what stopped it.

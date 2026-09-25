@@ -164,8 +164,8 @@ server:
       final address = jsonDecode((await depositor.ok(['address', '--transparent', '--json'])).out)['address'] as String;
       final funding = await _rpc('sendtoaddress', [address, 0.001]) as String;
       await _untilMined(funding);
-      final beef = '${depositor.root.path}/funding.beef';
-      File(beef).writeAsBytesSync(await _minedBeef(funding));
+      final beef = '${depositor.root.path}/funding.hex';
+      File(beef).writeAsStringSync(hex.encode(await _minedBeef(funding)));
       final received = await depositor.until(['receive', beef, '--json'],
           (r) => r.code == Exit.done && jsonDecode(r.out)['waitingFor'] == null, what: 'the funding is taken in');
       expect(jsonDecode(received.out)['satoshis'], 100000, reason: '$received');
@@ -242,8 +242,8 @@ server:
       final address = jsonDecode((await refunder.ok(['address', '--transparent', '--json'])).out)['address'] as String;
       final funding = await _rpc('sendtoaddress', [address, 0.001]) as String;
       await _untilMined(funding);
-      final beef = '${refunder.root.path}/funding.beef';
-      File(beef).writeAsBytesSync(await _minedBeef(funding));
+      final beef = '${refunder.root.path}/funding.hex';
+      File(beef).writeAsStringSync(hex.encode(await _minedBeef(funding)));
       await refunder.until(['receive', beef, '--json'],
           (r) => r.code == Exit.done && jsonDecode(r.out)['waitingFor'] == null, what: 'the funding is taken in');
 

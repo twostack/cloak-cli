@@ -37,6 +37,10 @@ class CloakConfig {
   /// config names another.
   static const defaultCdn = 'https://headers.overnode.net';
 
+  /// The service `cloak receive --txid` asks for a transaction's BEEF unless
+  /// the config names another. It serves mainnet and testnet from one address.
+  static const defaultBeefService = 'https://beef.xn--nda.network';
+
   /// What `chain.cdn` says to seed from no CDN. A regtest chain is local and
   /// has none.
   static const noCdn = 'none';
@@ -79,6 +83,9 @@ class CloakConfig {
   /// the network's default.
   final String? arcUrl;
 
+  /// Where `cloak receive --txid` asks for a transaction's BEEF.
+  final String beefUrl;
+
   const CloakConfig({
     required this.network,
     this.server,
@@ -90,11 +97,21 @@ class CloakConfig {
     this.refundMargin = 144,
     this.refundMinimum = 100,
     this.arcUrl,
+    this.beefUrl = defaultBeefService,
   })  : cdn = cdn ?? (network == CloakNetwork.regtest ? noCdn : defaultCdn),
         confirmations = confirmations ?? (network == CloakNetwork.regtest ? 1 : 6);
 
   /// Whether the pool has been named. A wallet can exist before it has.
   bool get hasPool => server != null && coordinator != null;
+
+  /// An https URL, or a plain http one on this machine, which is how a test
+  /// stands a service up.
+  static bool _secureOrLocal(String url) {
+    final uri = Uri.tryParse(url);
+    if (uri == null || uri.host.isEmpty) return false;
+    if (uri.scheme == 'https') return true;
+    return uri.scheme == 'http' && (uri.host == '127.0.0.1' || uri.host == 'localhost' || uri.host == '::1');
+  }
 
   /// The CDN to seed headers from, or null for none.
   String? get cdnUrl => cdn == noCdn ? null : cdn;
@@ -142,6 +159,12 @@ class CloakConfig {
             'are chosen by whoever is on the path');
       }
     }
+    final beefUrl = str(doc['beef'], 'url');
+    if (beefUrl != null && !_secureOrLocal(beefUrl)) {
+      throw Refusal('config',
+          '$path gives beef.url as $beefUrl, and it is an https URL: what comes back is checked, but whoever is on '
+          'the path of a plaintext one learns which transaction you asked about');
+    }
     return CloakConfig(
       network: network,
       server: str(pool, 'server'),
@@ -153,6 +176,7 @@ class CloakConfig {
       refundMargin: num(doc['deposit'], 'refund_margin') ?? 144,
       refundMinimum: num(doc['deposit'], 'refund_minimum') ?? 100,
       arcUrl: str(arc, 'url'),
+      beefUrl: beefUrl ?? defaultBeefService,
     );
   }
 
@@ -189,7 +213,10 @@ class CloakConfig {
       ..writeln('  # the fewest blocks past the tip a refund may open at; a coordinator skips a sooner one')
       ..writeln('  refund_minimum: $refundMinimum')
       ..writeln('arc:')
-      ..writeln('  url: ${arcUrl ?? '~'}');
+      ..writeln('  url: ${arcUrl ?? '~'}')
+      ..writeln('beef:')
+      ..writeln('  # asked for a transaction\'s BEEF by cloak receive --txid, and only then')
+      ..writeln('  url: $beefUrl');
     return b.toString();
   }
 }
