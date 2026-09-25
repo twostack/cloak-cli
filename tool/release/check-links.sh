@@ -8,7 +8,7 @@
 # macOS: every dependency under /usr/lib/ or /System/Library/Frameworks/ (or
 # the bundle's own libraries by @rpath), each library's own name @rpath/...,
 # and no absolute rpath. Linux: every NEEDED entry on the C library's list, no
-# SONAME with a path in it, no RPATH or RUNPATH, and no symbol newer than
+# SONAME with a path in it, no rpath but one relative to $ORIGIN, and no symbol newer than
 # glibc 2.35. Fails naming each file and dependency that is not allowed.
 set -eu
 bundle=${1:?usage: tool/release/check-links.sh <bundle directory>}
@@ -50,9 +50,14 @@ for f in $files; do
       done | grep -q bad && bad=1
       soname=$(readelf -d "$f" | awk '/\(SONAME\)/{gsub(/[\[\]]/,"",$5); print $5}')
       case "$soname" in */*) fail "$f names itself $soname" ;; esac
-      if readelf -d "$f" | grep -Eq '\((RPATH|RUNPATH)\)'; then
-        fail "$f has an rpath: $(readelf -d "$f" | grep -E '\((RPATH|RUNPATH)\)')"
-      fi
+      # an rpath relative to the file's own directory ($ORIGIN, which dart
+      # build cli gives the program) names no machine; any other names one
+      readelf -d "$f" | awk '/\((RPATH|RUNPATH)\)/ {gsub(/.*\[|\].*/, ""); print}' | tr ':' '\n' | while read -r rp; do
+        case "$rp" in
+          ''|'$ORIGIN'|'$ORIGIN/'*|'${ORIGIN}'|'${ORIGIN}/'*) ;;
+          *) echo "check-links: $f has the rpath $rp" >&2; echo bad ;;
+        esac
+      done | grep -q bad && bad=1
       newest=$(objdump -T "$f" | grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -t. -k1,1n -k2,2n | tail -1)
       if [ -n "$newest" ]; then
         major=${newest%%.*}; minor=${newest#*.}; minor=${minor%%.*}
