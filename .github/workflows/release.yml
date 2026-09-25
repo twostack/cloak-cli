@@ -73,8 +73,10 @@ jobs:
         if: steps.native.outputs.cache-hit != 'true'
         run: tool/release/build-isar.sh build/native
       - name: Default suite
-        # tstokenlib's build hook provides the kernels, here as in the build
-        run: dart test
+        # tstokenlib's build hook provides the kernels, here as in the build;
+        # Isar's library is the one just built, since Isar publishes none for
+        # Linux on arm64
+        run: ISAR_CORE_LIB="$PWD/build/native/libisar.so" dart test
       - name: Notices
         run: dart run tool/release/notices.dart build/THIRD_PARTY_NOTICES
       - name: Compile

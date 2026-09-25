@@ -5,12 +5,14 @@ import 'package:convert/convert.dart';
 import 'package:isar/isar.dart';
 import 'package:libspiffy/libspiffy.dart';
 
+import 'isar_core.dart';
+
 /// Opens the header store in the directory given and prints its answers to
 /// the three questions, as one JSON line: one of the processes in "two
 /// processes agree".
 Future<void> main(List<String> args) async {
   final [directory, hash, height] = args;
-  await Isar.initializeIsarCore(download: true);
+  await startIsar();
   final isar = await Isar.open(LibSpiffySchemas.allSchemas, directory: directory, name: 'headers');
   final chain = BlockHeaderChain(IsarWalletStorage(isar), params: NetworkParams.forNetwork('regtest'));
   await chain.initialize();

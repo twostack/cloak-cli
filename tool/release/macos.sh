@@ -66,7 +66,7 @@ mkdir -p "$out"
 dart pub get --enforce-lockfile
 dart analyze lib bin test tool/release
 tool/release/build-isar.sh "$out/native"
-dart test
+ISAR_CORE_LIB="$PWD/$out/native/libisar.dylib" dart test
 if ! dart run tool/release/notices.dart "$out/THIRD_PARTY_NOTICES" 2>"$out/notices.err"; then
   cat "$out/notices.err" >&2
   [ "$trial" -eq 1 ] || die "the notices could not be written, and a release does not ship without them"

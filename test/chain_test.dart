@@ -12,6 +12,7 @@ import 'package:spiffynode/spiffy_node.dart' show BlockHeader;
 import 'package:tstokenlib/tstokenlib.dart' show NoteAddress, BlockFold;
 import 'package:test/test.dart';
 
+import 'support/isar_core.dart';
 import 'support/scripts.dart';
 import 'support/fake_pool.dart';
 import 'support/harness.dart';
@@ -85,7 +86,7 @@ void main() {
   test('Two processes agree', () async {
     final dir = Directory.systemTemp.createTempSync('cloak-headers');
     addTearDown(() => dir.deleteSync(recursive: true));
-    await Isar.initializeIsarCore(download: true);
+    await startIsar();
     final isar = await Isar.open(LibSpiffySchemas.allSchemas, directory: dir.path, name: 'headers');
     final stored = BlockHeaderChain(IsarWalletStorage(isar), params: RegtestHeaders.params);
     await stored.initialize();
@@ -146,7 +147,7 @@ void main() {
       // the wallet's header store is a real Isar store in its own chain
       // directory, holding the fixture's blocks
       Directory(h.dir.chain).createSync();
-      await Isar.initializeIsarCore(download: true);
+      await startIsar();
       final isar = await Isar.open(LibSpiffySchemas.allSchemas, directory: h.dir.chain, name: 'headers');
       addTearDown(() async {
         if (isar.isOpen) await isar.close();
