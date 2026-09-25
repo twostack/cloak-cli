@@ -220,7 +220,7 @@ If all you have is the payment's txid, `cloak` can ask a BEEF service for it, an
 what comes back just the same:
 
 ```
-cloak receive --txid 796acd4c642e317c65e6b5db897544597849f709caf195a92508e373d502b403
+cloak receive --txid <txid>
 ```
 
 `cloak` checks the merkle proof against your own headers. If the payment's block is newer
