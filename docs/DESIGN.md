@@ -726,3 +726,23 @@ a transaction of yours, and that was read as ruling this out. The rule is libspi
 not monitor addresses or scan blocks, does not follow transactions it is not a party to, and
 takes no proof on a service's word. Fetching, at the person's request, evidence that is then
 checked against the wallet's own headers is none of those. Rule 1 now says what the rule is.
+
+## 21. v0.1.3 built (2026-09-25)
+
+Sections 19 and 20, released by `docs/RELEASING.md`. The first `v0.1.3`, on `d465ce2`, failed
+its release run (`36139117945`) at the arm64 bundle's secret scan: the README's example of
+`cloak receive --txid` carried a real 64-digit txid, which the scan cannot tell from a
+private key. No draft was made. The example now reads `<txid>` (`2f4eca9`); the tag was
+deleted and made again there, as the checklist says.
+
+`v0.1.3` (annotated) on `2f4eca9`. Release run `36142406087` passed:
+`cloak-0.1.3-linux-amd64.tar.gz` 8,093,227 bytes, `cloak-0.1.3-linux-arm64.tar.gz`
+7,857,105 bytes, both attested to `release.yml` at `refs/tags/v0.1.3`. `tool/release/macos.sh`
+from a clean worktree at `../c013`: suite 177 passed, 14 skipped; notarization `Accepted`
+(submission `efdd20bf-a67d-4c47-b300-2b363416d7c9`); `cloak-0.1.3-macos-arm64.dmg` 9,613,557
+bytes as uploaded, `Notarized Developer ID`; the quarantined program printed `cloak 0.1.3
+(2f4eca9...)`. All three files check against `SHA256SUMS` as downloaded. Published as a full
+release and marked latest; `install.sh` into an empty home directory installed `cloak 0.1.3`.
+
+Open, as for 0.1.1 and 0.1.2: the localnet end-to-end run against the signed program (step 6)
+and the clean machines (step 8).
