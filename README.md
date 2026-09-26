@@ -313,22 +313,31 @@ cloak deposit --amount 5000
 
 A deposit locks coins from your transparent side to a **covenant** naming the pool's current
 round. Nothing can promise in advance that the next round will take it in, so before
-anything is broadcast `cloak deposit` prints the amount, the round, and the **refund
+anything is handed over `cloak deposit` prints the amount, the round, and the **refund
 height**: the block from which you can take the money back yourself if no round takes it.
 Type `y` to go ahead, or pass `--yes` in a script. `--refund-height <block>` picks another
 refund height; it must be at least `refund_minimum` blocks ahead, because a coordinator
 skips a deposit whose refund opens too soon.
 
-A deposit is two steps. The coordinator only takes a deposit once its covenant is mined, so
-`cloak deposit` broadcasts the covenant and returns. Then:
+A deposit is one command. `cloak deposit` hands the covenant and the deposit to the pool,
+which broadcasts the covenant and takes the deposit in once the network has seen it, and
+the command says so within seconds. Then:
 
 ```
-cloak sync               # submits the deposit once its covenant is mined
 cloak sync               # later: reads the round that took it in; the note is spendable
 ```
 
-`cloak deposit --submit` does only the submitting. `cloak status` shows a deposit that is
-waiting.
+What else can come back:
+
+- **Refused** (the round is full, say): the covenant was never broadcast, so nothing was
+  spent and its coins are spendable again. Run `cloak deposit` again.
+- **No answer:** the deposit stays recorded as submitting, and the next `cloak sync` (or
+  `cloak deposit --submit`) hands it over again.
+- **A pool from before coordinator 0.1.8** takes a deposit only once its covenant is mined.
+  `cloak deposit` then broadcasts the covenant itself, and a later `cloak sync` submits it
+  when it is mined.
+
+`cloak status` shows a deposit that is waiting.
 
 ### Refunding a deposit
 
@@ -359,7 +368,7 @@ afterwards.
 | `cloak unlock` | checks the passphrase opens the wallet, and says what it holds |
 | `cloak address` | issues a fresh pool address; `--transparent` a fresh transparent one |
 | `cloak status` | the wallet directory and where its name came from, every file and whether it is encrypted, the formats this build reads, and what is pending |
-| `cloak sync` | brings the pool view to the pool's tip and checks it; settles payments and deposits whose rounds are mined; submits deposits whose covenant is mined |
+| `cloak sync` | brings the pool view to the pool's tip and checks it; settles payments and deposits whose rounds are mined; hands over deposits left unanswered |
 | `cloak invoice new` | an invoice for an amount, to a fresh address, written to a file |
 | `cloak invoice show` | reads and checks an invoice somebody handed you |
 | `cloak pay` | pays an invoice out of one note this wallet holds |
@@ -426,7 +435,8 @@ from your own headers. Along the way it:
   change and deposited notes, and keeps the proof of each payment you made for
   `cloak proof`;
 - releases the note of a transfer the pool dropped;
-- submits deposits whose covenant is now mined.
+- hands over deposits the pool did not answer, and submits those whose covenant this wallet
+  broadcast and is now mined.
 
 It asks for the passphrase only when something needs settling. `--from-genesis` folds the
 pool's whole history, for a new wallet on a young pool.
@@ -537,9 +547,11 @@ transaction, and is then checked like any BEEF you give it. The default service,
 `cloak deposit --broadcast <txid>`
 
 Builds the deposit, has the transparent side fund and sign the covenant, records both, and
-broadcasts the covenant. `--submit` submits deposits whose covenant is mined, and does
-nothing else. `--broadcast` sends a recorded covenant again without rebuilding it, for when
-the first broadcast failed. Needs a pool view that is checked up to its latest round: run
+hands them to the pool, which broadcasts the covenant; it reports the pool's answer. A
+refusal before the covenant reached the network gives its coins back. `--submit` hands over
+deposits left unanswered and submits those whose covenant this wallet broadcast and is now
+mined, and does nothing else. `--broadcast` puts a recorded covenant on the chain yourself,
+without rebuilding it. Needs a pool view that is checked up to its latest round: run
 `cloak sync` first.
 
 ### refund

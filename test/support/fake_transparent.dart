@@ -86,11 +86,26 @@ class FakeTransparentSide implements TransparentSide {
     return (BuiltTransparent(tx.id, tx.serialize()), null);
   }
 
+  /// Transactions the fake network knows though this side did not
+  /// broadcast them: a covenant a coordinator broadcast.
+  final Set<String> networkKnows = {};
+
   @override
-  Future<void> release(String txid) async {
+  Future<bool> release(String txid) async {
     calls.add('release');
+    // as libspiffy: never while the network knows the transaction
+    if (networkKnows.contains(txid)) return false;
     final c = held.remove(txid);
     if (c != null) coins.add(c);
+    return true;
+  }
+
+  @override
+  Future<bool> settle(String txid) async {
+    calls.add('settle $txid');
+    if (!networkKnows.contains(txid) && !minedTxids.contains(txid)) return false;
+    held.remove(txid); // spent by the transaction the network has
+    return true;
   }
 
   @override

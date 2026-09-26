@@ -116,6 +116,29 @@ void main() {
     Map<String, Object?> state(Harness h) => jsonDecode(File(h.dir.state).readAsStringSync()) as Map<String, Object?>;
     Map<String, Object?> deposit0(Harness h) => (state(h)['deposits'] as List).first as Map<String, Object?>;
 
+    /// The covenants this wallet built, as it recorded them.
+    List<Transaction> covenantsOf(Harness h) => [
+          for (final t in (state(h)['transparent'] as List).cast<Map<String, Object?>>())
+            if (t['kind'] == 'deposit') Transaction.fromHex(t['tx'] as String)
+        ];
+
+    /// The submissions [t] carried.
+    List<PoolSubmission> submissionsOn(FakePoolTransport t) => [for (final f in t.sent) PoolMessage.decode(f)].whereType<PoolSubmission>().toList();
+
+    /// A pool that answers every submission with [reply] (null: no answer).
+    FakePoolTransport answering(PoolReply? Function(PoolSubmission s) reply) {
+      final t = fp.transport(rounds: 1, head: 1, acceptInto: 2);
+      final usual = t.answer!;
+      t.answer = (frame) async {
+        final msg = PoolMessage.decode(frame);
+        if (msg is! PoolSubmission) return usual(frame);
+        final r = reply(msg);
+        if (r == null) throw const TransportFailure('request', 'no reply arrived before the deadline');
+        return r.encode();
+      };
+      return t;
+    }
+
     test('Depositing against an unchecked view', () async {
       final h = Harness.make(ports: CountingPorts(headerSource: fp.headers()), poolKeys: fp.keys, now: early);
       made.add(h);
@@ -135,7 +158,7 @@ void main() {
       final h = await depositor();
       final ran = await h.run(['deposit', '--amount', '5000', '--yes', '--json']);
       expect(ran.code, Exit.done, reason: '$ran');
-      final covenant = Transaction.fromHex(spiffy.broadcasts.single);
+      final covenant = covenantsOf(h).single;
       final live = ShieldedPoolTool().getOutpoint(fp.c.r1.hash, outputIndex: 3);
       final found = ShieldedPoolTool.findDeposits([covenant], live, minRefundAfter: 0);
       expect(found, hasLength(1), reason: 'it names round 1\'s PP3, the round this wallet folded and checked');
@@ -153,7 +176,7 @@ void main() {
       h.ports.transparentSide = spiffy;
       final ran = await h.run(['deposit', '--amount', '5000', '--yes']);
       expect(ran.code, Exit.done, reason: '$ran');
-      final covenant = Transaction.fromHex(spiffy.broadcasts.single);
+      final covenant = covenantsOf(h).single;
       final genesis = ShieldedPoolTool().getOutpoint(fp.c.r0.hash, outputIndex: 3);
       expect(ShieldedPoolTool.findDeposits([covenant], genesis, minRefundAfter: 0), hasLength(1),
           reason: 'before round 1 the live PP3 is the issuance\'s');
@@ -178,13 +201,33 @@ void main() {
       expect(why!.reason, contains('real note beside a deposit'));
     });
 
-    test('Submitted once mined', () async {
+    test('One command against a coordinator that broadcasts', () async {
       final h = await depositor();
-      expect((await h.run(['deposit', '--amount', '5000', '--yes'])).code, Exit.done);
+      final t = answering((sub) => PoolReply.accepted(sub.id, 2));
+      h.ports.transportPort = t;
+      final ran = await h.run(['deposit', '--amount', '5000', '--yes', '--json']);
+      expect(ran.code, Exit.done, reason: '$ran');
+      final sub = submissionsOn(t).single;
       final txid = deposit0(h)['covenant'] as String;
+      expect(Transaction.fromHex(hex.encode(sub.depositTx!)).id, txid, reason: 'the covenant went with the submission');
+      expect(spiffy.calls, isNot(contains('broadcast')), reason: 'the wallet broadcast nothing itself');
+      expect(spiffy.calls, contains('settle $txid'), reason: 'it asked the network, so the coins count as spent');
+      expect(deposit0(h)['status'], 'accepted');
+      expect((jsonDecode(ran.out) as Map)['status'], 'accepted');
       final status = await h.run(['status']);
-      expect(status.out, contains('deposit $txid: broadcast'));
-      expect(status.out, contains('refundable from block'));
+      expect(status.out, isNot(contains('recorded and not broadcast')));
+    });
+
+    test('A coordinator that wants the covenant mined', () async {
+      final h = await depositor();
+      h.ports.transportPort =
+          answering((sub) => PoolReply.refused(sub.id, RefusalReason.depositCovenant, 'the deposit covenant ${'ab' * 32} is not mined'));
+      final ran = await h.run(['deposit', '--amount', '5000', '--yes']);
+      expect(ran.code, Exit.done, reason: '$ran');
+      final txid = deposit0(h)['covenant'] as String;
+      expect(Transaction.fromHex(spiffy.broadcasts.single).id, txid, reason: 'broadcast here, as deposits used to go');
+      expect(deposit0(h)['status'], 'broadcast');
+      expect(ran.out, contains('cloak sync submits it'));
 
       // not mined yet: the sync leaves it waiting and says so
       final t1 = fp.transport(rounds: 1, head: 1);
@@ -192,7 +235,7 @@ void main() {
       final early1 = await h.run(['sync']);
       expect(early1.code, Exit.done, reason: '$early1');
       expect(early1.out, contains('not mined yet'));
-      expect(t1.sent.where((f) => PoolMessage.decode(f) is PoolSubmission), isEmpty);
+      expect(submissionsOn(t1), isEmpty);
 
       // mined: the next sync submits it, covenant attached
       spiffy.minedTxids.add(txid);
@@ -200,9 +243,74 @@ void main() {
       h.ports.transportPort = t2;
       final later = await h.run(['sync']);
       expect(later.code, Exit.done, reason: '$later');
-      final sub = [for (final f in t2.sent) PoolMessage.decode(f)].whereType<PoolSubmission>().single;
-      expect(Transaction.fromHex(hex.encode(sub.depositTx!)).id, txid);
+      expect(Transaction.fromHex(hex.encode(submissionsOn(t2).single.depositTx!)).id, txid);
       expect(deposit0(h)['status'], 'accepted');
+    });
+
+    test('No answer: left submitting, and the next sync hands it over again', () async {
+      final h = await depositor();
+      h.ports.transportPort = answering((_) => null);
+      final ran = await h.run(['deposit', '--amount', '5000', '--yes']);
+      expect(ran.code, Exit.done, reason: '$ran');
+      expect(ran.out, contains('did not answer'));
+      final txid = deposit0(h)['covenant'] as String;
+      expect(deposit0(h)['status'], 'submitting');
+      expect(spiffy.calls, isNot(contains('broadcast')));
+      expect(spiffy.calls, isNot(contains('release')), reason: 'no answer is not a refusal: the coins stay held');
+      final status = await h.run(['status']);
+      expect(status.out, contains('deposit $txid: submitting'));
+      expect(status.out, isNot(contains('recorded and not broadcast')), reason: 'the pool broadcasts it, not the person');
+      final t = answering((sub) => PoolReply.accepted(sub.id, 2));
+      h.ports.transportPort = t;
+      final again = await h.run(['sync']);
+      expect(again.code, Exit.done, reason: '$again');
+      expect(Transaction.fromHex(hex.encode(submissionsOn(t).single.depositTx!)).id, txid);
+      expect(deposit0(h)['status'], 'accepted');
+    });
+
+    test('A resubmission the pool already holds counts as accepted', () async {
+      final h = await depositor();
+      h.ports.transportPort = answering((_) => null);
+      await h.run(['deposit', '--amount', '5000', '--yes']);
+      h.ports.transportPort =
+          answering((sub) => PoolReply.refused(sub.id, RefusalReason.depositPending, 'a pending transfer already backs this covenant'));
+      final ran = await h.run(['deposit', '--submit']);
+      expect(ran.code, Exit.done, reason: '$ran');
+      expect(deposit0(h)['status'], 'accepted');
+    });
+
+    test('Refused and never broadcast: nothing was spent', () async {
+      final h = await depositor();
+      final before = await spiffy.spendable();
+      h.ports.transportPort = answering(
+          (sub) => PoolReply.refused(sub.id, RefusalReason.receiptSlots, 'the pending round has no receipt slot left; resubmit after it closes'));
+      final ran = await h.run(['deposit', '--amount', '5000', '--yes']);
+      expect(ran.code, Exit.refused, reason: '$ran');
+      expect(ran.err, contains('no receipt slot left'));
+      expect(ran.err, contains('nothing was spent'));
+      expect(deposit0(h)['status'], 'released');
+      expect(await spiffy.spendable(), before, reason: 'the covenant\'s coins are spendable again');
+      expect(spiffy.held, isEmpty);
+      final status = await h.run(['status']);
+      expect(status.out, isNot(contains(deposit0(h)['covenant'] as String)), reason: 'nothing pending, nothing to broadcast');
+    });
+
+    test('Refused after the network saw it: the refund is the way back', () async {
+      final h = await depositor();
+      h.ports.transportPort = answering((sub) {
+        // the pool broadcast the covenant, then refused
+        spiffy.networkKnows.add(Transaction.fromHex(hex.encode(sub.depositTx!)).id);
+        return PoolReply.refused(sub.id, RefusalReason.depositCovenant, 'the deposit covenant output is spent');
+      });
+      final ran = await h.run(['deposit', '--amount', '5000', '--yes']);
+      expect(ran.code, Exit.done, reason: '$ran');
+      final d = deposit0(h);
+      expect(d['status'], 'broadcast');
+      expect(ran.out, contains('refundable from block ${d['refundAfter']}'));
+      expect(spiffy.held, isNotEmpty, reason: 'libspiffy would not release coins the network has');
+      final status = await h.run(['status']);
+      expect(status.out, contains('deposit ${d['covenant']}: broadcast'));
+      expect(status.out, contains('refundable from block'));
     });
 
     test('The person is told what they are risking, and The warning is shown', () async {
@@ -271,27 +379,28 @@ void main() {
       expect(spiffy.broadcasts, hasLength(broadcasts), reason: 'nothing was broadcast');
     });
 
-    test('Killed between recording and broadcasting', () async {
+    test('Killed between recording and handing over, and put on the chain by hand', () async {
       final h = await depositor();
-      spiffy.failBroadcast = 'the process died here';
+      h.ports.transportPort = answering((_) => null);
       final ran = await h.run(['deposit', '--amount', '5000', '--yes']);
-      expect(ran.code, Exit.refused);
+      expect(ran.code, Exit.done);
       final recorded = (state(h)['transparent'] as List).single as Map;
       expect(recorded['broadcast'], isFalse);
-      final status = await h.run(['status']);
-      expect(status.out, contains('${recorded['txid']}: recorded and not broadcast'));
+      expect(deposit0(h)['status'], 'submitting');
+      // the person can still put the covenant on the chain themselves
       final again = await h.run(['deposit', '--broadcast', recorded['txid'] as String]);
       expect(again.code, Exit.done, reason: '$again');
       expect(spiffy.broadcasts.single, recorded['tx'], reason: 'sent as it was recorded, not rebuilt');
+      expect(deposit0(h)['status'], 'broadcast');
     });
 
-    test('Killed after broadcasting', () async {
+    test('Killed after handing over', () async {
       final h = await depositor();
       expect((await h.run(['deposit', '--amount', '5000', '--yes'])).code, Exit.done);
-      final first = FakeTransparentSide.fundingOf(spiffy.broadcasts.single);
+      final first = FakeTransparentSide.fundingOf(covenantsOf(h).first.serialize());
       // the next run finds the record, and the coins it spent are held for it
       expect((await h.run(['deposit', '--amount', '5000', '--yes'])).code, Exit.done);
-      final second = FakeTransparentSide.fundingOf(spiffy.broadcasts.last);
+      final second = FakeTransparentSide.fundingOf(covenantsOf(h).last.serialize());
       expect(second, isNot(first), reason: 'no second deposit spends the same funding outpoint');
       expect((state(h)['deposits'] as List), hasLength(2));
     });
@@ -303,8 +412,7 @@ void main() {
         expect((await h.run(['deposit', '--amount', '5000', '--yes'])).code, Exit.done);
       }
       final pkhs = <String>{};
-      for (final tx in spiffy.broadcasts) {
-        final t = Transaction.fromHex(tx);
+      for (final t in covenantsOf(h)) {
         final found = ShieldedPoolTool.findDeposits([t], ShieldedPoolTool().getOutpoint(fp.c.r1.hash, outputIndex: 3), minRefundAfter: 0);
         final script = t.outputs[found.single.vout].script.buffer;
         pkhs.add(hex.encode(script));

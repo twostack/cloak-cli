@@ -34,7 +34,7 @@ Future<void> runSync(Call call) async {
   // waiting for its covenant needs the transparent side's secrets, and a
   // mined round of this wallet's needs the nullifier key to mark a note spent
   final peek = call.dir.holdsWallet ? await CloakState.open(call.dir) : CloakState();
-  final waiting = peek.deposits.any((d) => d.status == 'broadcast');
+  final waiting = peek.deposits.any((d) => d.status == 'broadcast' || d.status == 'submitting');
   final s = await call.open(write: true, keys: waiting || needsKeys(peek));
   if (waiting) await s.transparent();
   final stateBefore = s.state.encode();

@@ -179,7 +179,10 @@ class DepositRecord {
   /// submitted by a later run once the covenant is mined.
   final List<int> transfer;
 
-  /// `recorded`, `broadcast`, `accepted`, `taken`, `refunded` or `refused`.
+  /// `recorded`, `submitting` (handed to the pool, no answer yet),
+  /// `broadcast`, `accepted`, `taken`, `refunded`, `refused` (its covenant
+  /// on the chain, refundable) or `released` (refused before it was ever
+  /// broadcast, its coins given back).
   String status;
   List<int>? submissionId;
   int? position;

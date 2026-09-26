@@ -189,13 +189,18 @@ void _nativeLibraries(Call call) {
 }
 
 void _pending(CloakState state, Report r) {
-  final deposits = [for (final d in state.deposits) if (d.status != 'taken' && d.status != 'refunded') d];
+  final deposits = [
+    for (final d in state.deposits)
+      if (d.status != 'taken' && d.status != 'refunded' && d.status != 'released') d
+  ];
   r.quiet('deposits', [for (final d in deposits) d.toJson()..remove('note')]);
   for (final d in deposits) {
     r.say('deposit ${d.covenantTxid}: ${d.status}, ${d.satoshis} satoshis, for round ${d.intoRound}, '
         'refundable from block ${d.refundAfter}');
   }
-  final unsent = [for (final t in state.transparent) if (!t.broadcast) t];
+  // a covenant being handed to the pool is the pool's to broadcast
+  final handing = {for (final d in state.deposits) if (d.status == 'submitting') d.covenantTxid};
+  final unsent = [for (final t in state.transparent) if (!t.broadcast && !handing.contains(t.txid)) t];
   r.quiet('unbroadcast', [for (final t in unsent) {'kind': t.kind, 'txid': t.txid}]);
   for (final t in unsent) {
     r.say('${t.kind} ${t.txid}: recorded and not broadcast; cloak ${t.kind == 'withdrawal' ? 'withdraw' : t.kind} '

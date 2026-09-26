@@ -113,9 +113,11 @@ server:
       await for (final line in create.stdout.transform(utf8.decoder).transform(const LineSplitter())) {
         createOutput.writeln(line);
         // it asks to be funded, and says under which peer id it published
-        final fund = RegExp(r'^fund (\S+) with at least (\d+) satoshis').firstMatch(line);
+        // "fund <address> with one payment of at least <n> satoshis" since
+        // coordinator 0.1.2; "with at least" before it
+        final fund = RegExp(r'fund (\S+) with (?:one payment of )?at least (\d+) satoshis').firstMatch(line);
         if (fund != null) unawaited(_rpc('sendtoaddress', [fund.group(1)!, (int.parse(fund.group(2)!) + 100000) / 1e8]));
-        peerId ??= RegExp(r'under peer id (\S+)').firstMatch(line)?.group(1);
+        peerId ??= RegExp(r'under peer id (\w+)').firstMatch(line)?.group(1);
       }
       if (await create.exitCode != 0 || peerId == null) fail('the coordinator did not create the pool:\n$createOutput');
       timings['pool created ms'] = sw.elapsedMilliseconds;
@@ -170,13 +172,20 @@ server:
           (r) => r.code == Exit.done && jsonDecode(r.out)['waitingFor'] == null, what: 'the funding is taken in');
       expect(jsonDecode(received.out)['satoshis'], 100000, reason: '$received');
 
-      // ---- the deposit: built, funded by libspiffy, broadcast through ARC
+      // ---- the deposit: built, funded by libspiffy, handed to the coordinator,
+      // which broadcasts the covenant and takes it in with no block between
+      final heightBefore = await _rpc('getblockcount') as int;
       final sw = Stopwatch()..start();
       final dep = jsonDecode((await depositor.ok(['deposit', '--amount', '5000', '--yes', '--json'])).out) as Map;
       timings['deposit ms'] = sw.elapsedMilliseconds;
+      timings['deposit answer ms'] = dep['answerMs'] as int;
       final covenant = dep['covenant'] as String;
       expect(dep['amount'], 5000);
-      await _untilMined(covenant);
+      expect(dep['status'], 'accepted', reason: 'one command: handed over and taken in');
+      final covenantMined = (await _rpc('getrawtransaction', [covenant, 1]) as Map)['confirmations'];
+      if (await _rpc('getblockcount') as int == heightBefore) {
+        expect(covenantMined, anyOf(isNull, 0), reason: 'accepted before any block mined it');
+      }
 
       // ---- the next syncs submit it and, once round 1 is mined, take its note on
       final sw1 = Stopwatch()..start();
@@ -247,9 +256,19 @@ server:
       await refunder.until(['receive', beef, '--json'],
           (r) => r.code == Exit.done && jsonDecode(r.out)['waitingFor'] == null, what: 'the funding is taken in');
 
+      // a pool that never answers: the ricochet server's own mailbox. The
+      // deposit is left submitting, and the person puts the covenant on the
+      // chain by hand, so no round takes it in
+      final config = File('${refunder.path}/config.yaml');
+      final real = config.readAsStringSync();
+      final nobody = ricochet.address.split('/p2p/').last;
+      config.writeAsStringSync(real.replaceFirst(RegExp(r'  coordinator: \S+'), '  coordinator: $nobody'));
       final dep = jsonDecode((await refunder.ok(['deposit', '--amount', '4000', '--yes', '--json'])).out) as Map;
       final covenant = dep['covenant'] as String;
       final refundAfter = dep['refundAfter'] as int;
+      expect(dep['status'], 'submitting', reason: 'no answer is not a refusal');
+      config.writeAsStringSync(real);
+      await refunder.ok(['deposit', '--broadcast', covenant]);
       await _untilMined(covenant);
 
       // never submitted: no sync runs. Too early is refused, naming the height

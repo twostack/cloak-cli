@@ -175,9 +175,12 @@ class SpiffyTransparentSide implements TransparentSide {
   }
 
   @override
-  Future<void> release(String txid) async {
-    await _ask<DeferredPaymentCancelledEvent>(
+  Future<bool> release(String txid) async {
+    // libspiffy asks the network first and refuses while it knows the
+    // transaction, which is what makes this safe after a handover
+    final e = await _ask<DeferredPaymentCancelledEvent>(
         CancelDeferredPaymentCommand(walletId: walletId, txid: txid, reason: 'not broadcast'), (e) => e.txid == txid);
+    return e.success;
   }
 
   @override
@@ -199,6 +202,13 @@ class SpiffyTransparentSide implements TransparentSide {
         BroadcastDeferredPaymentCommand(walletId: walletId, txid: txid), (e) => e.txid == txid);
     if (sent.success) return null;
     return Refusal('broadcast', sent.error ?? 'the network did not take it (${sent.networkStatus})');
+  }
+
+  @override
+  Future<bool> settle(String txid) async {
+    final s = await _ask<DeferredPaymentStatusEvent>(
+        CheckDeferredPaymentStatusCommand(walletId: walletId, txid: txid), (e) => e.txid == txid);
+    return s.success && (s.networkStatus == 'SEEN_ON_NETWORK' || s.networkStatus == 'MINED' || s.confirmed);
   }
 
   @override

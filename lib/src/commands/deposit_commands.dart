@@ -12,6 +12,7 @@ import 'package:tstokenlib/tstokenlib.dart';
 import '../net/beef_service.dart';
 import '../shell/bounded_file.dart';
 import '../shell/call.dart';
+import '../shell/world.dart' show TransparentSide;
 import '../wallet/session.dart';
 import '../wallet/state_file.dart';
 import 'settling.dart';
@@ -20,9 +21,10 @@ import 'submitting.dart';
 void depositOptions(ArgParser p) => p
   ..addOption('amount', valueHelp: 'satoshis', help: 'what goes into the pool')
   ..addOption('refund-height', valueHelp: 'block', help: 'the block the deposit is refundable from')
-  ..addFlag('yes', negatable: false, help: 'broadcast without asking; the refund height is still printed first')
-  ..addFlag('submit', negatable: false, help: 'submit deposits whose covenant is now mined, and nothing else')
-  ..addOption('broadcast', valueHelp: 'txid', help: 'send a recorded deposit covenant without rebuilding it');
+  ..addFlag('yes', negatable: false, help: 'hand the deposit over without asking; the refund height is still printed first')
+  ..addFlag('submit', negatable: false,
+      help: 'submit deposits left unanswered, and those whose covenant this wallet broadcast and is now mined, and nothing else')
+  ..addOption('broadcast', valueHelp: 'txid', help: 'put a recorded deposit covenant on the chain yourself, without rebuilding it');
 
 void refundOptions(ArgParser p) => p
   ..addOption('deposit', valueHelp: 'txid', help: 'the deposit covenant to take back')
@@ -205,10 +207,12 @@ BEEF readBeef(List<int> bytes) {
 /// back to a key only this wallet holds, from a block height chosen here,
 /// printed before anything is broadcast, and confirmed by the person.
 ///
-/// It is two steps. This builds the covenant and the deposit's transfer,
-/// records both, broadcasts the covenant and returns; the coordinator takes a
-/// deposit only once its covenant is mined, so the transfer is submitted by a
-/// later `cloak sync`, or `cloak deposit --submit`.
+/// It is one step. This builds the covenant and the deposit's transfer,
+/// records both, and hands them to the coordinator, which broadcasts the
+/// covenant and takes the deposit in once the network has seen it
+/// (pool-coordinator 0.1.8 and later). A coordinator from before that wants
+/// the covenant mined first: then this broadcasts it and a later `cloak sync`
+/// submits it, as deposits used to go.
 Future<void> runDeposit(Call call) async {
   final rebroadcast = call.option('broadcast');
   if (rebroadcast != null) return _rebroadcast(call, rebroadcast, kind: 'deposit');
@@ -296,7 +300,6 @@ Future<void> runDeposit(Call call) async {
   await s.save(view: false, store: false);
   whole.stop();
 
-  final why = await t.broadcast(built.txHex);
   final r = call.report
     ..add('covenant', built.txid, 'deposit covenant ${built.txid}')
     ..add('amount', amount, '$amount satoshis, for round ${view.round + 1}')
@@ -304,14 +307,92 @@ Future<void> runDeposit(Call call) async {
     ..add('refundAfter', refundAfter, 'refundable from block $refundAfter')
     ..add('clockMs', {'building': whole.elapsedMilliseconds - network.elapsedMilliseconds - deposit.proving.inMilliseconds, 'proving': deposit.proving.inMilliseconds, 'funding': network.elapsedMilliseconds},
         'clock: building ${whole.elapsedMilliseconds - network.elapsedMilliseconds - deposit.proving.inMilliseconds} ms outside the spend proof (${deposit.proving.inMilliseconds} ms) and the funding (${network.elapsedMilliseconds} ms)');
-  if (why != null) {
-    throw Refusal(why.step,
-        '${why.reason}. The covenant is recorded and not broadcast; cloak deposit --broadcast ${built.txid} sends it '
-        'without rebuilding it');
+  final d = s.state.deposits.last;
+  final handed = Stopwatch()..start();
+  final said = await _handOver(call, s, t, d);
+  r
+    ..quiet('status', d.status)
+    ..quiet('answerMs', handed.elapsedMilliseconds)
+    ..say(said);
+  if (d.status == 'released') {
+    throw Refusal('pool', 'the pool refused the deposit: ${d.reason}. The covenant was never broadcast, and its coins are '
+        'spendable again; nothing was spent');
   }
-  _markBroadcast(s, built.txid);
+}
+
+/// Hands deposit [d] to the coordinator, covenant attached, and records what
+/// came of it; returns a sentence for the person. The covenant is broadcast by
+/// the coordinator, not here, unless the coordinator is one that wants it
+/// mined first.
+Future<String> _handOver(Call call, Session s, TransparentSide t, DepositRecord d) async {
+  final covenant = s.state.transparent.firstWhere((x) => x.txid == d.covenantTxid);
+  // submitting from here on: a run that dies before the answer leaves a
+  // deposit `cloak sync` submits again, never one it forgets
+  d.status = 'submitting';
   await s.save(view: false, store: false);
-  r.say('broadcast. When it is mined, cloak sync submits the deposit to the pool');
+  final submission = PoolSubmission(_freshId(call), d.transfer, depositTx: hex.decode(covenant.txHex));
+  final (client, whyOpen) = await CoordinatorClient.open(await s.transport(), timeout: s.config.timeout);
+  if (client == null) {
+    return 'the pool could not be reached (${whyOpen!.reason}); the deposit is recorded and nothing was spent. cloak sync '
+        'hands it over again';
+  }
+  final outcome = await client.send(submission);
+  d.submissionId = submission.id;
+  final String said;
+  switch (outcome.outcome) {
+    case Submitted.accepted:
+      d.status = 'accepted';
+      _markSent(s, d.covenantTxid);
+      await t.settle(d.covenantTxid);
+      said = 'handed over: the pool broadcast the covenant and took the deposit in for round ${outcome.round ?? d.intoRound}';
+    case Submitted.refused || Submitted.expired:
+      final reason = outcome.sentence ?? outcome.refusal?.reason ?? 'no reason given';
+      if (outcome.reason == RefusalReason.depositPending) {
+        // an earlier hand-over of this very covenant is pending
+        d.status = 'accepted';
+        _markSent(s, d.covenantTxid);
+        await t.settle(d.covenantTxid);
+        said = 'the pool already holds this deposit for round ${d.intoRound}';
+      } else if (outcome.reason == RefusalReason.depositCovenant && reason.contains('is not mined')) {
+        // a coordinator from before 0.1.8: the covenant goes on the chain
+        // from here, and `cloak sync` submits it once mined
+        final why = await t.broadcast(covenant.txHex);
+        if (why != null) {
+          d.status = 'recorded';
+          said = 'the pool wants the covenant mined first, and broadcasting it failed (${why.reason}); cloak deposit '
+              '--broadcast ${d.covenantTxid} sends it';
+        } else {
+          _markBroadcast(s, d.covenantTxid);
+          said = 'this pool takes a deposit once its covenant is mined: broadcast here, and cloak sync submits it when it is';
+        }
+      } else if (await t.release(d.covenantTxid)) {
+        // never on the chain: nothing to refund, and nothing left to send
+        d.status = 'released';
+        d.reason = reason;
+        s.state.transparent.removeWhere((x) => x.txid == d.covenantTxid);
+        said = 'refused: $reason';
+      } else {
+        // the network knows the covenant, so the pool broadcast it before
+        // refusing: its coins are spent, and the refund is the way back
+        d.status = 'broadcast';
+        d.reason = reason;
+        _markSent(s, d.covenantTxid);
+        said = 'refused after the covenant reached the network: $reason. It is refundable from block ${d.refundAfter} '
+            'by cloak refund';
+      }
+    case Submitted.unanswered || Submitted.unsent:
+      said = 'the pool did not answer; the deposit stays recorded as submitting and cloak sync hands it over again';
+  }
+  await s.save(view: false, store: false);
+  return said;
+}
+
+/// The covenant [txid] is on the network, sent by someone else: its
+/// transparent record counts as broadcast.
+void _markSent(Session s, String txid) {
+  for (final t in s.state.transparent) {
+    if (t.txid == txid) t.broadcast = true;
+  }
 }
 
 void _markBroadcast(Session s, String txid) {
@@ -319,7 +400,7 @@ void _markBroadcast(Session s, String txid) {
     if (t.txid == txid) t.broadcast = true;
   }
   for (final d in s.state.deposits) {
-    if (d.covenantTxid == txid && d.status == 'recorded') d.status = 'broadcast';
+    if (d.covenantTxid == txid && (d.status == 'recorded' || d.status == 'submitting')) d.status = 'broadcast';
   }
 }
 
@@ -337,11 +418,12 @@ Future<void> _rebroadcast(Call call, String txid, {required String kind}) async 
   call.report.add('broadcast', txid, 'broadcast $kind $txid, as it was recorded');
 }
 
-/// Submits every deposit whose covenant is now mined, recording what the
-/// coordinator said. A deposit whose covenant is not mined yet is left
-/// waiting, and said to be.
+/// Submits every deposit left submitting (the pool did not answer) and every
+/// deposit whose covenant this wallet broadcast itself and is now mined,
+/// recording what the coordinator said. A broadcast one not yet mined is
+/// left waiting, and said to be.
 Future<void> submitWaitingDeposits(Call call, Session s) async {
-  final waiting = [for (final d in s.state.deposits) if (d.status == 'broadcast') d];
+  final waiting = [for (final d in s.state.deposits) if (d.status == 'broadcast' || d.status == 'submitting') d];
   final r = call.report;
   if (waiting.isEmpty) {
     r.add('deposits', const [], 'no deposit is waiting to be submitted');
@@ -350,6 +432,12 @@ Future<void> submitWaitingDeposits(Call call, Session s) async {
   final t = await s.transparent();
   final out = <Map<String, Object?>>[];
   for (final d in waiting) {
+    if (d.status == 'submitting') {
+      final said = await _handOver(call, s, t, d);
+      out.add({'covenant': d.covenantTxid, 'status': d.status});
+      r.say('deposit ${d.covenantTxid}: $said');
+      continue;
+    }
     if (!await t.mined(d.covenantTxid)) {
       out.add({'covenant': d.covenantTxid, 'status': 'waiting'});
       r.say('deposit ${d.covenantTxid}: its covenant is not mined yet');
@@ -365,8 +453,12 @@ Future<void> submitWaitingDeposits(Call call, Session s) async {
       case Submitted.accepted:
         d.status = 'accepted';
       case Submitted.refused || Submitted.expired:
-        d.status = 'refused';
-        d.reason = '${outcome.refusal!.step}: ${outcome.refusal!.reason}';
+        if (outcome.reason == RefusalReason.depositPending) {
+          d.status = 'accepted';
+        } else {
+          d.status = 'refused';
+          d.reason = '${outcome.refusal!.step}: ${outcome.refusal!.reason}';
+        }
       case Submitted.unanswered || Submitted.unsent:
         break;
     }

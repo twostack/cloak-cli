@@ -114,8 +114,11 @@ abstract interface class TransparentSide {
   /// with [release].
   Future<(BuiltTransparent?, Refusal?)> payTo(List<int> lockingScript, int satoshis);
 
-  /// Gives back the coins held for [txid], which will not be broadcast.
-  Future<void> release(String txid);
+  /// Gives back the coins held for [txid], which will not be broadcast, and
+  /// says whether it did: never while the network knows the transaction,
+  /// since someone else may have broadcast it (a coordinator a deposit was
+  /// handed to), and then its coins are spent and its refund is the way back.
+  Future<bool> release(String txid);
 
   /// Broadcasts [txHex]. It has already been recorded when this is called;
   /// a failure is a refusal carrying the broadcaster's reason. [fundedHere]
@@ -125,6 +128,13 @@ abstract interface class TransparentSide {
 
   /// Whether [txid], a transaction this wallet broadcast, is mined.
   Future<bool> mined(String txid);
+
+  /// Asks the network about [txid], a transaction this wallet built and
+  /// someone else broadcast (a deposit's covenant, sent by the coordinator),
+  /// so its coins count as spent and its change comes back. True when the
+  /// network has it; false when it does not yet, which a later [mined]
+  /// settles in the same way.
+  Future<bool> settle(String txid);
 }
 
 /// A transparent transaction built and not yet broadcast.
