@@ -836,3 +836,20 @@ A fresh cloak 0.1.5 deposited 75,000 satoshis into the testnet pool, which was r
 - No block came between the handover and the answer. Round 8 was announced at 05:47:30Z and mined at 1759946, the next block, with the pool's balance going from 260,001 to 315,001 satoshis.
 
 The answer time on cloak's side was not printed. On the coordinator's side it is the admission, 1.25 s, almost all of it ARC's wait for `SEEN_ON_NETWORK`. The localnet figure from section 25 is 364 ms.
+
+## 27. v0.2.0 built (2026-09-26)
+
+**What's in it.** tstokenlib 3.0.0 and libcloak 0.2.0. tstokenlib found and fixed its deviation D1: a verifier squeezed its query indices from the transcript state before the grind, so the grind bought no soundness (the system was 88 bits conjectured / 44 proven, 102 / 58 with the fix). Proofs do not verify across the two versions, so 0.2.0 works with pools created by pool-coordinator 0.2.0 and later; the 0.1.x testnet pool is abandoned. tstokenlib 3.0.0 also leaves the kernels library header room for a long install name, so `macos.sh` no longer needs a short path.
+
+**A failure in the release run, not in CI.** The first `v0.2.0` tag, on `1b81440`, failed the amd64 suite (run `36230013820`): "Mutated BEEF never crashes the wallet" timed out at 5 minutes, and its loop then wrote into the directory teardown had removed. It takes about 2 minutes on an M-series Mac and passed in `ci` on the same commit. `3f6d7bf` gives it 10 minutes; `v0.2.0` was tagged again there.
+
+**The build.** Release run `36231949634` passed. From `../c020`, `tool/release/macos.sh` gave:
+- smoke passed, notarization `Accepted` (submission `e18a9086-a987-42d4-9527-a5fa9422bbb0`), `Notarized Developer ID`;
+- the quarantined program printed `cloak 0.2.0 (3f6d7bf...)`;
+- `cloak-0.2.0-macos-arm64.dmg` 9,620,596 bytes, `cloak-0.2.0-linux-amd64.tar.gz` 8,104,487, `cloak-0.2.0-linux-arm64.tar.gz` 7,865,034, all checked against `SHA256SUMS`.
+
+**Checks before publishing.** Step 6: the localnet end-to-end suite against the signed program, with pool-coordinator 0.2.0, passed all four. The pool was created in 11.4 s, a deposit answered in 269 ms (4.1 s for the whole command), deposit to spendable note took 140 s, and a payment 2.5 s.
+
+**Published.** Published and marked latest. `install.sh` into an empty home directory installed `cloak 0.2.0` in 5 s, download included.
+
+Open, as before: the clean machines (step 8).
