@@ -11,9 +11,9 @@ import 'isar_core.dart';
 /// the three questions, as one JSON line: one of the processes in "two
 /// processes agree".
 Future<void> main(List<String> args) async {
-  final [directory, hash, height] = args;
+  final [directory, name, hash, height] = args;
   await startIsar();
-  final isar = await Isar.open(LibSpiffySchemas.allSchemas, directory: directory, name: 'headers');
+  final isar = await Isar.open(LibSpiffySchemas.allSchemas, directory: directory, name: name);
   final chain = BlockHeaderChain(IsarWalletStorage(isar), params: NetworkParams.forNetwork('regtest'));
   await chain.initialize();
   final source = SpiffyHeaderSource(chain);

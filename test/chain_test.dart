@@ -87,7 +87,8 @@ void main() {
     final dir = Directory.systemTemp.createTempSync('cloak-headers');
     addTearDown(() => dir.deleteSync(recursive: true));
     await startIsar();
-    final isar = await Isar.open(LibSpiffySchemas.allSchemas, directory: dir.path, name: 'headers');
+    final name = _storeName();
+    final isar = await Isar.open(LibSpiffySchemas.allSchemas, directory: dir.path, name: name);
     final stored = BlockHeaderChain(IsarWalletStorage(isar), params: RegtestHeaders.params);
     await stored.initialize();
     for (final h in mined) {
@@ -96,7 +97,7 @@ void main() {
     await isar.close();
     final answers = <String>[];
     for (int i = 0; i < 2; i++) {
-      final r = await runScript('test/support/answer_headers.dart', [dir.path, mined[6].blockHash().toString(), '9']);
+      final r = await runScript('test/support/answer_headers.dart', [dir.path, name, mined[6].blockHash().toString(), '9']);
       expect(r.exitCode, 0, reason: '${r.stderr}');
       answers.add(const LineSplitter().convert('${r.stdout}').last);
     }
@@ -148,7 +149,7 @@ void main() {
       // directory, holding the fixture's blocks
       Directory(h.dir.chain).createSync();
       await startIsar();
-      final isar = await Isar.open(LibSpiffySchemas.allSchemas, directory: h.dir.chain, name: 'headers');
+      final isar = await Isar.open(LibSpiffySchemas.allSchemas, directory: h.dir.chain, name: _storeName());
       addTearDown(() async {
         if (isar.isOpen) await isar.close();
       });
@@ -225,3 +226,11 @@ bool _holds(List<int> haystack, List<int> needle) {
   }
   return false;
 }
+
+/// A header store name of this test's own. Isar keys an open instance by its
+/// name across every isolate of the process, whatever directory it was opened
+/// in, and `dart test` runs the other suite files as isolates of this one: a
+/// store named `headers`, as libspiffy names a wallet's, would be another
+/// file's store whenever the two overlap (release run 36215304283, where
+/// this file's fresh store already had cdn_seed_test's tip).
+String _storeName() => 'headers-chain-test-${pid}-${DateTime.now().microsecondsSinceEpoch}';
