@@ -826,3 +826,13 @@ A dry run of the release workflow on `v0.1.4` passed the same day, so the timing
 **Published.** Published as a full release and marked latest; the workflow makes a pre-release, cleared on publishing as for 0.1.4. `install.sh` into an empty home directory installed `cloak 0.1.5` in 4 s, download included.
 
 Open, as before: the clean machines (step 8).
+
+## 26. The first live deposit (2026-09-26)
+
+A fresh cloak 0.1.5 deposited 75,000 satoshis into the testnet pool, which was running pool-coordinator 0.1.8, in one command (`cloak deposit --amount 75000`):
+- Covenant `313fbd609d32b56ed78e134916cd7e770fb48ca91bed277fd2a61b8f3daf6bf8`, for round 8, with the chain at 1759945 and the refund open from 1760089.
+- cloak built it in 13.5 s: 1,894 ms for the funding, 53 ms for the spend proof, and 11,562 ms for the rest.
+- The coordinator's log has the covenant `admitted, seen by the network, in 1254 ms` at 05:36:57.484Z, and the submission `accepted into round 8` 0.3 ms later. cloak printed "handed over: the pool broadcast the covenant and took the deposit in for round 8".
+- No block came between the handover and the answer. Round 8 was announced at 05:47:30Z and mined at 1759946, the next block, with the pool's balance going from 260,001 to 315,001 satoshis.
+
+The answer time on cloak's side was not printed. On the coordinator's side it is the admission, 1.25 s, almost all of it ARC's wait for `SEEN_ON_NETWORK`. The localnet figure from section 25 is 364 ms.

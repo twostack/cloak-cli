@@ -18,4 +18,4 @@
 
 ## 5. End to end and measurement
 
-- [ ] 5.1 The localnet end-to-end run against pool-coordinator 0.1.8 or later (built from ../pool-coordinator, as the harness does): `cloak deposit` then `cloak sync`, with no block mined between the deposit and its answer, gives the depositor's note once the round is mined. Record the answer time in docs/DESIGN.md. Then run one deposit against the live testnet pool and record its time there too.
+- [x] 5.1 The localnet end-to-end run against pool-coordinator 0.1.8 or later (built from ../pool-coordinator, as the harness does): `cloak deposit` then `cloak sync`, with no block mined between the deposit and its answer, gives the depositor's note once the round is mined. Record the answer time in docs/DESIGN.md. Then run one deposit against the live testnet pool and record its time there too.
