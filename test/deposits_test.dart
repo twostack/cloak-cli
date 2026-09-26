@@ -682,7 +682,9 @@ void main() {
         }
       }
       print('  1,000 mutated BEEF payments: $taken read, ${1000 - taken} refused at ${steps.join(', ')}');
-    }, timeout: const Timeout(Duration(minutes: 5)));
+      // about 2 minutes on an M-series Mac; the hosted amd64 runner once took
+      // over 5
+    }, timeout: const Timeout(Duration(minutes: 10)));
   });
 }
 
