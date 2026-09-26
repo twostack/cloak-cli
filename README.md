@@ -92,7 +92,7 @@ curl -fsSL https://raw.githubusercontent.com/twostack/cloak-cli/main/install.sh 
 
 It picks the bundle for your machine (on macOS, the disk image), checks it against the
 release's `SHA256SUMS`, unpacks it into `~/.local/share/cloak/<version>/` and links `~/.local/bin/cloak` to it, with no
-`sudo`. It says so if `~/.local/bin` is not on your `PATH`. `sh install.sh --version 0.1.5`
+`sudo`. It says so if `~/.local/bin` is not on your `PATH`. `sh install.sh --version 0.2.0`
 installs a given version. If the download fails or does not match its checksum, nothing is
 installed and what you had is left as it was.
 
@@ -104,8 +104,8 @@ path:
 
 ```
 mkdir -p ~/.local/share/cloak ~/.local/bin
-cp -R "/Volumes/cloak 0.1.5/cloak-0.1.5-macos-arm64" ~/.local/share/cloak/0.1.5
-ln -sf ~/.local/share/cloak/0.1.5/bin/cloak ~/.local/bin/cloak
+cp -R "/Volumes/cloak 0.2.0/cloak-0.2.0-macos-arm64" ~/.local/share/cloak/0.2.0
+ln -sf ~/.local/share/cloak/0.2.0/bin/cloak ~/.local/bin/cloak
 ```
 
 The image is signed with the Developer ID of Werkswinkel Pte Ltd and notarized by Apple,
@@ -113,7 +113,7 @@ with Apple's ticket stapled to it, so macOS runs the program without a warning, 
 too. To check it yourself:
 
 ```
-spctl --assess --type open --context context:primary-signature -v cloak-0.1.5-macos-arm64.dmg
+spctl --assess --type open --context context:primary-signature -v cloak-0.2.0-macos-arm64.dmg
 ```
 
 which should say `accepted` and `source=Notarized Developer ID`.
@@ -125,7 +125,7 @@ the bundle before unpacking it:
 
 ```
 sha256sum -c SHA256SUMS --ignore-missing
-gh attestation verify cloak-0.1.5-linux-amd64.tar.gz --repo twostack/cloak-cli
+gh attestation verify cloak-0.2.0-linux-amd64.tar.gz --repo twostack/cloak-cli
 ```
 
 The first says the file is the one the release lists (it works for the disk image too, with
@@ -133,8 +133,8 @@ The first says the file is the one the release lists (it works for the disk imag
 repository at the release's tag. Then:
 
 ```
-tar -xzf cloak-0.1.5-linux-amd64.tar.gz -C ~/.local/share/cloak
-ln -sf ~/.local/share/cloak/cloak-0.1.5-linux-amd64/bin/cloak ~/.local/bin/cloak
+tar -xzf cloak-0.2.0-linux-amd64.tar.gz -C ~/.local/share/cloak
+ln -sf ~/.local/share/cloak/cloak-0.2.0-linux-amd64/bin/cloak ~/.local/bin/cloak
 ```
 
 Run the program through a link or by its path, and keep `bin/` and `lib/` together: it finds

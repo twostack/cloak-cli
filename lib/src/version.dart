@@ -11,7 +11,7 @@ import 'wallet/state_file.dart';
 /// machines can see at once which build is the older one.
 class CloakVersion {
   /// The program's own version, as the manifest states it.
-  static const program = '0.1.5';
+  static const program = '0.2.0';
 
   /// The `cloak-cli` commit this binary was built from, which only a release
   /// build knows; any other build says it is a development build rather than

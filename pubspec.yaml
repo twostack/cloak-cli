@@ -1,6 +1,6 @@
 name: cloak_cli
 description: "A command-line wallet for the TSL1_SP shielded pool: receive BSV, deposit it, pay people, and prove you did."
-version: 0.1.5
+version: 0.2.0
 publish_to: none
 
 environment:
@@ -14,10 +14,10 @@ executables:
 # committed (see pubspec_overrides.yaml.example).
 dependencies:
   # the shielded side: keys, notes, invoices, payments, proofs, the journal
-  libcloak: ^0.1.1
+  libcloak: ^0.2.0
   # the pool itself: the protocol messages, the deposit and withdrawal
   # builders, the parameter plans
-  tstokenlib: ^2.1.0
+  tstokenlib: ^3.0.0
   # the transparent side: BEEF in, UTXOs, signing, broadcast, the header chain
   libspiffy: ^3.0.1
   # the pipe to the coordinator

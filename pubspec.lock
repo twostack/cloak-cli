@@ -477,10 +477,10 @@ packages:
     dependency: "direct main"
     description:
       name: libcloak
-      sha256: "9b82f3d40b8f9bc6981189c183725378e7e4fbd94ade6eb238ea8dbe28231000"
+      sha256: b36fb910d66ec15a4e214afa3946a29de9f70cad5aa3f629b6c8e68ce6f730d7
       url: "https://pub.dev"
     source: hosted
-    version: "0.1.1"
+    version: "0.2.0"
   libspiffy:
     dependency: "direct main"
     description:
@@ -829,10 +829,10 @@ packages:
     dependency: "direct main"
     description:
       name: tstokenlib
-      sha256: cc838596a5f257ef4539ffadab1d293c27a4d123c67f6b3f699ec7612052e942
+      sha256: "632cc31ab9796d37273def67b21822d8c0e2c88e7c0f325ab5293e19f34dc782"
       url: "https://pub.dev"
     source: hosted
-    version: "2.1.0"
+    version: "3.0.0"
   typed_data:
     dependency: transitive
     description:
