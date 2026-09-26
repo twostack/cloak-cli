@@ -790,3 +790,39 @@ latest; `install.sh` into an empty home directory installed `cloak 0.1.4`.
 
 Open, as before: the localnet end-to-end run against the signed program (step 6) and the
 clean machines (step 8).
+
+## 25. v0.1.5 built (2026-09-26)
+
+**What's in it.** The one-command deposit, from change `deposit-handover`:
+- `cloak deposit` hands the covenant to the pool, and pool-coordinator 0.1.8 broadcasts it.
+- A refusal before the covenant reached the network gives its coins back, through libspiffy's cancel, which refuses while the network knows the transaction.
+- No answer leaves the deposit `submitting`, for `cloak sync`.
+- A pool that still wants the covenant mined gets the old flow.
+
+The localnet run's harness had not matched the coordinator's funding request since coordinator 0.1.2 ("with one payment of at least"), so it waited on `create` until its setup timed out. That is fixed here too.
+
+**A failure in the release run, not in CI.** `ci` was green on `main` at `adc0141`. The first tag there failed the release run's amd64 suite twice (run `36215304283`) on "The header store names no wallet": the fixture's first header was refused as having an unknown parent. The cause is how Isar keys instances:
+- Isar keys an open instance by its name across every isolate of a process, whatever its directory.
+- `dart test` runs the suite files as isolates of one process.
+- So a store named `headers` was cdn_seed_test's whenever the two files overlapped, and it already had a tip.
+
+A dry run of the release workflow on `v0.1.4` passed the same day, so the timing, not the code, had changed. `ea9fa9a` gives chain_test's stores names of their own. A dry run on `main` passed, and `v0.1.5` was tagged again on `ea9fa9a`.
+
+**The build.** Release run `36218897204` passed:
+- `cloak-0.1.5-linux-amd64.tar.gz`, 8,104,498 bytes;
+- `cloak-0.1.5-linux-arm64.tar.gz`, 7,864,139 bytes;
+- both attested from `refs/tags/v0.1.5`.
+
+`tool/release/macos.sh` has to run from a short path, as it did from `../c014`. From a worktree under a long temporary path, tstokenlib's build hook failed on `install_name_tool`, because the new install name did not fit the dylib's header padding. From `../c015` it gave:
+- suite 185 passed, 14 skipped;
+- notarization `Accepted` (submission `07d82b05-a35a-423e-9949-ac2e9765c75d`);
+- `cloak-0.1.5-macos-arm64.dmg`, 9,622,888 bytes, `Notarized Developer ID`;
+- the quarantined program printed `cloak 0.1.5 (ea9fa9a...)`.
+
+**Checks before publishing.**
+- Step 6, done this time: the localnet end-to-end suite against the signed program passed all four. The pool was created in 8.5 s, a deposit answered in 364 ms (4.8 s for the whole command), deposit to spendable note took 140 s, and a payment 2.8 s.
+- All three files check against `SHA256SUMS` as downloaded.
+
+**Published.** Published as a full release and marked latest; the workflow makes a pre-release, cleared on publishing as for 0.1.4. `install.sh` into an empty home directory installed `cloak 0.1.5` in 4 s, download included.
+
+Open, as before: the clean machines (step 8).
